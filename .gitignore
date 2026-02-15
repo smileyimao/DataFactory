@@ -1,0 +1,10 @@
+# 忽略视频原片
+raw_video/
+
+# 忽略切出来的成千上万张图片
+output_frames/
+
+# 忽略 Python 缓存和系统临时文件
+__pycache__/
+.DS_Store
+.idea/
