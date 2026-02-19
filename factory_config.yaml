@@ -20,8 +20,8 @@ quality_thresholds:
 
 # 🏭 生产流程控制
 production_setting:
-  trial_limit_seconds: 10  # 👈 默认试产 5 秒
-  pass_rate_gate: 75.0    # (刚才咱们加的及格线)
+  trial_limit_seconds: 5  # 👈 默认试产 5 秒
+  pass_rate_gate: 80.0    # (刚才咱们加的及格线)
 
 
 # 🏭 邮件预警配置（YAML 标准格式）

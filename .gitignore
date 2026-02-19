@@ -1,10 +1,7 @@
-# 忽略视频原片
+# 排除所有数据产出
+data_warehouse/
 raw_video/
-
-# 忽略切出来的成千上万张图片
-output_frames/
-
-# 忽略 Python 缓存和系统临时文件
+test_videos/
 __pycache__/
+*.pyc
 .DS_Store
-.idea/
