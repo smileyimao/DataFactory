@@ -21,7 +21,7 @@ quality_thresholds:
 # 🏭 生产流程控制
 production_setting:
   trial_limit_seconds: 5  # 👈 默认试产 5 秒
-  pass_rate_gate: 80.0    # (刚才咱们加的及格线)
+  pass_rate_gate: 95.0    # (刚才咱们加的及格线)
 
 
 # 🏭 邮件预警配置（YAML 标准格式）
@@ -29,4 +29,3 @@ email_setting:
     smtp_server: "smtp.mail.me.com"
     sender: "smileyimao@icloud.com"
     receiver: "xituled@gmail.com"
-    password: "oxct-cdtp-ddgj-ihlm"  # 👈 建议用小写，方便代码对应

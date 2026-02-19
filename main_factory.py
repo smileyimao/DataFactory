@@ -9,6 +9,8 @@ from core_engine import DataMachine
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart  # 👈 修复报错的核心零件
 from email.mime.application import MIMEApplication # 👈 处理附件的核心零件
+from inputimeout import inputimeout, TimeoutOccurred
+from db_manager import check_reproduce, record_production
 
 # ==========================================
 # 1. 全局配置区（Datafactory_v1.0 总调度室）
@@ -35,7 +37,12 @@ def send_quality_alert(pass_rate, report_path, gate_val):
     smtp_port = cfg.get('smtp_port', 587)
     sender_email = cfg.get('sender')
     receiver_email = cfg.get('receiver')
-    auth_code = cfg.get('password')
+    auth_code = os.getenv('EMAIL_PASSWORD')
+
+    if not auth_code:
+        print("\n💡 [提醒]：检测到未配置环境变量 EMAIL_PASSWORD。")
+        print("   -> 本次运行将跳过邮件发送环节，其他处理流程正常继续。")
+        print("   -> 若需发送报告，请在 PyCharm 运行配置中设置该变量。\n")
 
     # --- 2. 构造邮件基础信息 ---
     msg = MIMEMultipart()
@@ -70,22 +77,27 @@ def send_quality_alert(pass_rate, report_path, gate_val):
         print(f"❌ 附件处理失败: {e}")
 
     # --- 4. 建立加密连接并发送 (针对 iCloud 优化) ---
-    try:
-        # 使用 standard SMTP + TLS (iCloud/Gmail 常用)
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()  # 启动加密传输
-        server.login(sender_email, auth_code)
-        server.sendmail(sender_email, [receiver_email], msg.as_string())
-        server.quit()
-        print(f"📧 [iCloud预警] 质量报告已成功发送至：{receiver_email}")
-    except Exception as e:
-        print(f"❌ 邮件发送失败，请检查授权码或网络: {e}")
-
+    # 【核心逻辑】：只有拿到了 auth_code，才去撞门发邮件
+    if auth_code:
+        try:
+            # 使用 standard SMTP + TLS (iCloud/Gmail 常用)
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()  # 启动加密传输
+            server.login(sender_email, auth_code)
+            server.sendmail(sender_email, [receiver_email], msg.as_string())
+            server.quit()
+            print(f"📧 [iCloud预警] 质量报告已成功发送至：{receiver_email}")
+        except Exception as e:
+            # 即使报错（比如网络断了），也只是打印错误，不影响主流程
+            print(f"❌ 邮件发送失败，请检查授权码或网络: {e}")
+    else:
+        # 如果 auth_code 是 None（即没设环境变量），就走这条路
+        print("⏭️  [跳过发送]：未检测到环境变量 EMAIL_PASSWORD，已自动跳过邮件预警环节。")
 
 # ==========================================
 # 3. 智能总厂核心流程
 # ==========================================
-def run_smart_factory(limit_val=None, gate_val=None, is_auto=False):
+def run_smart_factory(limit_val=None, gate_val=None, file_md5=None):
     # 🏭 1. 先让大脑加载配置（这一步建立了基准）
     DataMachine.load_config("factory_config.yaml")
 
@@ -134,59 +146,7 @@ def run_smart_factory(limit_val=None, gate_val=None, is_auto=False):
     print(f"\n🚀 [阶段 1] 启动试制车间 | 批次: {batch_id} | 试产配置: 每段 {final_limit}s")
     DataMachine.start_production(videos, pilot_dir, batch_id, limit_seconds=final_limit)
 
-    # --- D. 逻辑闸口：质量评估 ---
-    with open(os.path.join(pilot_dir, "manifest.json"), 'r', encoding='utf-8') as f:
-        results = json.load(f)
-
-    total = len(results)
-    normal = len([item for item in results if item['env'] == "Normal"])
-    pass_rate = (normal / total) * 100 if total > 0 else 0
-
-    print(f"📊 试产自检看板：全通率 {pass_rate:.2f}% (合格:{normal}/总计:{total})")
-
-    # --- E. 决策引擎 ---
-    start_mass_prod = False # noqa
-
-    if pass_rate >= final_gate:
-        print(f"✅ 质量达标（阈值 {final_gate}%），系统自动转入大规模制造...")
-        start_mass_prod = True
-    else:
-        print(f"⚠️ 预警：全通率 ({pass_rate:.2f}%) 低于设定的 {final_gate}%！")
-        # 发送报警邮件
-        send_quality_alert(pass_rate, os.path.join(pilot_dir, 'quality_report.html'), final_gate)
-
-        if is_auto:
-            # 🤖 自动挡逻辑：保安在干活时，发现不合格就直接停，不等人敲键盘
-            print("🤖 [自动模式] 质量未达标，已触发熔断。请查收邮件报告。")
-            return  # 👈 直接结束，让保安继续盯着下一个视频
-        else:
-            # 🕹️ 手动挡逻辑：你自己在终端跑 python main_factory.py 时，依然可以手动确认
-            print(f"📍 请查看报告: file://{os.path.abspath(os.path.join(pilot_dir, 'quality_report.html'))}")
-            while True:
-                confirm = input("\n🏭 厂长，是否强行开启全量量产？(y/n): ").strip().lower()
-                if confirm == 'y':
-                    print("🚀 厂长授权强制生产...")
-                    start_mass_prod = True
-                    break
-                elif confirm == 'n':
-                    print("🛑 指令取消。")
-                    return
-                else:
-                    print("⚠️ 无效输入，请输入 y 或 n。")
-
-    # --- F. 第二阶段：大规模制造 (Mass Production) ---
-    if start_mass_prod:
-        print(f"\n🏭 [阶段 2] 启动大规模制造流水线（全量数据）...")
-        # 注意：这里要使用前面定义的 videos 和 mass_dir
-        count = DataMachine.start_production(
-            video_paths=videos,
-            target_dir=mass_dir,
-            batch_id=batch_id,
-            limit_seconds=None
-        )
-        print(f"\n🏆 量产报捷！共加工 {count} 张样图，成品存放在: {os.path.abspath(mass_dir)}")
-
-    # --- G. 物料入库：将原始视频移动到 Batch 文件夹中 ---
+    # --- D. 物料入库：将原始视频移动到 Batch 文件夹中 ---
     # 在 Batch 目录下创建一个 '0_Source_Video' 文件夹
     # 这样你的 Batch 文件夹里就有：1_Pilot, 2_Mass, 0_Source
     source_archive_dir = os.path.join(WAREHOUSE, f"Batch_{batch_id}", "0_Source_Video")
@@ -199,6 +159,78 @@ def run_smart_factory(limit_val=None, gate_val=None, is_auto=False):
             print(f"📦 [归档成功]: 原始视频 {os.path.basename(v_path)} 已存入 0_Source_Video")
         except Exception as e:
             print(f"⚠️ [归档失败]: {v_path} 搬运出错: {e}")
+
+    # --- E. 逻辑闸口：质量评估 ---
+    with open(os.path.join(pilot_dir, "manifest.json"), 'r', encoding='utf-8') as f:
+        results = json.load(f)
+
+    total = len(results)
+    normal = len([item for item in results if item['env'] == "Normal"])
+    pass_rate = (normal / total) * 100 if total > 0 else 0
+
+    print(f"📊 试产自检看板：全通率 {pass_rate:.2f}% (合格:{normal}/总计:{total})")
+
+    # --- F. 决策引擎 ---
+    start_mass_prod = False # noqa
+
+    # 👈 [新增]：查账逻辑。看看这个指纹之前量产成功过吗？
+    history_batch = check_reproduce(file_md5) if file_md5 else None
+
+    # 修改判断逻辑：质量达标 且 不是重复物料，才自动量产
+    if pass_rate >= final_gate and not history_batch:
+        print(f"✅ 质量达标（阈值 {final_gate}%），且是新物料，系统自动转入大规模制造...")
+        start_mass_prod = True
+    else:
+        # 进入人工干预环节
+        if history_batch:
+            print(f"⚠️  [档案馆拦截]：检测到该文件已在批次 {history_batch} 中完成过量产！")
+        else:
+            print(f"⚠️  预警：全通率 ({pass_rate:.2f}%) 低于设定的 {final_gate}%！")
+
+        # 发送报警邮件
+        report_path = os.path.join(pilot_dir, 'quality_report.html')
+        send_quality_alert(pass_rate, report_path, final_gate)
+
+        print(f"📍 请查看报告: file://{os.path.abspath(report_path)}")
+        print("⏳ [系统进入决策等待] 10分钟内无有效指令将自动判定为放弃/跳过。")
+
+        while True:
+            try:
+                # 👈 [防呆提示语优化]
+                reason = "重复物料" if history_batch else "质量不合格"
+                prompt = f"\n🏭 厂长，检测到【{reason}】。是否【强行】开启全量量产？(y/n) [10min后自动选n]: "
+                user_input = inputimeout(prompt=prompt, timeout=600).strip().lower()
+
+                if user_input == 'y':
+                    print("🚀 厂长现场授权：强制启动全量生产！")
+                    start_mass_prod = True
+                    break
+                elif user_input == 'n' or user_input == "":
+                    print("🛑 厂长指令：放弃本次任务。")
+                    return  # 彻底结束
+                else:
+                    print(f"⚠️  无效输入 '{user_input}'，请输入 y 或 n。")
+            except TimeoutOccurred:
+                print("\n\n⏰ [超时熔断] 10 分钟未响应，系统默认放弃。")
+                return
+
+    # --- G. 第二阶段：大规模制造 (Mass Production) ---
+    if start_mass_prod:
+        # 💡 厂长补丁：因为视频被挪到了 0_Source_Video，更新一下路径列表
+        new_video_paths = [os.path.join(source_archive_dir, os.path.basename(v)) for v in videos]
+
+        print(f"\n🏭 [阶段 2] 启动大规模制造流水线（全量数据）...")
+        count = DataMachine.start_production(
+            video_paths=new_video_paths,  # 👈 使用更新后的路径
+            target_dir=mass_dir,
+            batch_id=batch_id,
+            limit_seconds=None
+        )
+        print(f"\n🏆 量产报捷！共加工 {count} 张样图，成品存放在: {os.path.abspath(mass_dir)}")
+        # 👈 [新增]：量产成功，向档案馆记账
+        if file_md5:
+            record_production(batch_id, file_md5, pass_rate, "SUCCESS")
+            print(f"📔 [档案入库]: 批次 {batch_id} 的指纹已存入历史大账本。")
 
 
 # ==========================================
