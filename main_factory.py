@@ -1,250 +1,369 @@
 import os
 import glob
 import json
+import logging
 import smtplib
 import shutil
-import argparse  # 👈 新增：命令行解析零件
+import argparse
 from datetime import datetime
+from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
 from core_engine import DataMachine
 from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart  # 👈 修复报错的核心零件
-from email.mime.application import MIMEApplication # 👈 处理附件的核心零件
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from inputimeout import inputimeout, TimeoutOccurred
-from db_manager import check_reproduce, record_production
+from db_manager import get_reproduce_info, record_production, get_file_md5
 
 # ==========================================
-# 1. 全局配置区（Datafactory_v1.0 总调度室）
+# 1. 全局配置区
 # ==========================================
-INPUT_DIR = "raw_video"
-WAREHOUSE = "data_warehouse"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+INPUT_DIR = os.path.join(_BASE_DIR, "raw_video")
+WAREHOUSE = os.path.join(_BASE_DIR, "data_warehouse")
+REJECTED_DIR = os.path.join(_BASE_DIR, "rejected_material")
+REDUNDANT_DIR = os.path.join(_BASE_DIR, "redundant_archives")
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+def now_toronto():
+    return datetime.now(ZoneInfo("America/Toronto"))
 
 # ==========================================
-# 2. 邮件报警零件
+# 2. 邮件（密码仅从 os.getenv 读取）
 # ==========================================
-def send_quality_alert(pass_rate, report_path, gate_val):
-    """
-    [邮件报警零件 3.0]：从 DataMachine 获取脱敏配置并发送预警
-    """
-    # 1. 领电池（从 DataMachine 的大脑获取配置）
+def _send_mail(subject, body, report_path=None):
+    if not DataMachine.email_config:
+        DataMachine.load_config(os.path.join(_BASE_DIR, "factory_config.yaml"))
     cfg = DataMachine.email_config
     if not cfg:
-        print("⚠️ [报警中断] YAML 配置文件中未发现 email_setting，请检查配置。")
+        print("⚠️ [报警中断] YAML 中未发现 email_setting。")
         return
-
-    # 从字典中提取参数 (对应你 YAML 里的键名)
-    smtp_server = cfg.get('smtp_server')
-    # iCloud 专用 587 端口，如果 YAML 没写就默认 587
-    smtp_port = cfg.get('smtp_port', 587)
-    sender_email = cfg.get('sender')
-    receiver_email = cfg.get('receiver')
     auth_code = os.getenv('EMAIL_PASSWORD')
-
     if not auth_code:
-        print("\n💡 [提醒]：检测到未配置环境变量 EMAIL_PASSWORD。")
-        print("   -> 本次运行将跳过邮件发送环节，其他处理流程正常继续。")
-        print("   -> 若需发送报告，请在 PyCharm 运行配置中设置该变量。\n")
-
-    # --- 2. 构造邮件基础信息 ---
+        print("\n💡 [提醒]：未配置 EMAIL_PASSWORD，本次跳过邮件发送。\n")
+        return
     msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = f"🚨 质量预警：当前全通率 {pass_rate:.2f}% (未达标)"
+    msg['From'] = cfg.get('sender')
+    msg['To'] = cfg.get('receiver')
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+    if report_path and os.path.exists(report_path):
+        try:
+            with open(report_path, "rb") as f:
+                part = MIMEApplication(f.read(), Name=os.path.basename(report_path))
+                part['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
+                msg.attach(part)
+        except Exception as e:
+            print(f"❌ 附件处理失败: {e}")
+    try:
+        server = smtplib.SMTP(cfg.get('smtp_server'), cfg.get('smtp_port', 587))
+        server.starttls()
+        server.login(cfg.get('sender'), auth_code)
+        server.sendmail(cfg.get('sender'), [cfg.get('receiver')], msg.as_string())
+        server.quit()
+        print(f"📧 邮件已发送至：{cfg.get('receiver')}")
+    except Exception as e:
+        print(f"❌ 邮件发送失败: {e}")
 
+
+def send_batch_qc_report(batch_id, qc_archive, gate_val, report_path=None):
+    """【批次质检报告】待处理物料清单 - Batch:[ID]。每行：合格 / 不合格 得分/准入 / 重复 曾于批次。"""
+    lines = []
+    for item in qc_archive:
+        name = item["filename"]
+        score = item["score"]
+        if item.get("is_duplicate"):
+            lines.append(f"  - {name}  [重复] 曾于批次 {item.get('duplicate_batch_id', '')} 处理（{item.get('duplicate_created_at', '')}）")
+        elif item["passed"]:
+            lines.append(f"  - {name}  [合格]")
+        else:
+            lines.append(f"  - {name}  [不合格] 得分: {score:.1f}% / 准入: {gate_val}%")
+    body = "厂长您好，\n\n本批次检测已完成，结果如下（待处理物料清单）：\n\n" + "\n".join(lines)
+    body += "\n\n请根据控制台逐项复核 (y/n/all/none)，不放行的将移至废片库或冗余库。\n--------------------------------------------------\n本邮件由 Datafactory 自动生成。"
+    _send_mail(f"【批次质检报告】待处理物料清单 - Batch:{batch_id}", body, report_path)
+
+
+def send_alert_line(pass_rate, report_path, gate_val):
     body = f"""厂长您好，
 
-当前批次试产质量未通过检测：
+当前批次试产质量未通过检测（产线报警）：
 - 目标合格率门槛：{gate_val}%
 - 实际全通率：{pass_rate:.2f}%
 
-详细的“不合格品原因”请下载附件中的 HTML 报告查看。
+详细不合格原因请查看附件 HTML 报告。
 --------------------------------------------------
-本邮件由 Datafactory 3.0 自动生成。
-    """
-    msg.attach(MIMEText(body, 'plain'))
+本邮件由 Datafactory 自动生成。
+"""
+    _send_mail("【产线报警】质量未达标", body, report_path)
 
-    # --- 3. 添加附件 (HTML 报告) ---
-    try:
-        if os.path.exists(report_path):
-            with open(report_path, "rb") as f:
-                # 提取文件名
-                file_name = os.path.basename(report_path)
-                part = MIMEApplication(f.read(), Name=file_name)
-                part['Content-Disposition'] = f'attachment; filename="{file_name}"'
-                msg.attach(part)
-        else:
-            print(f"⚠️ 找不到报告文件: {report_path}")
-    except Exception as e:
-        print(f"❌ 附件处理失败: {e}")
 
-    # --- 4. 建立加密连接并发送 (针对 iCloud 优化) ---
-    # 【核心逻辑】：只有拿到了 auth_code，才去撞门发邮件
-    if auth_code:
+def send_alert_duplicate(report_path, processed_at):
+    body = f"""厂长您好，
+
+【重复投产确认】
+
+该物料指纹已于 {processed_at} 处理过，请厂长上线确认重复投产情况。
+
+本批次质量报告见附件（如有）。
+--------------------------------------------------
+本邮件由 Datafactory 自动生成。
+"""
+    _send_mail("【重复投产确认】重复物料", body, report_path)
+
+
+def send_duplicate_confirm_request(processed_at):
+    body = f"""厂长您好，
+
+【重复投产确认请求】
+
+该物料指纹已于 {processed_at} 处理过，请厂长上线确认重复投产情况。
+请选择 [y] 强行重产 或 [n] 移入冗余库（10 分钟内未响应将自动移入冗余库）。
+--------------------------------------------------
+本邮件由 Datafactory 自动生成。
+"""
+    _send_mail("【重复投产确认请求】", body)
+
+
+# ==========================================
+# 3. 集中质检复核流程
+# ==========================================
+VALID_REVIEW_INPUTS = frozenset({"y", "n", "all", "none"})
+
+
+def _ask_review_one(prompt_suffix, timeout=600):
+    """循环询问直到得到 y/n/all/none 或超时。超时返回 'none'，并记录 Timeout Emergency Stop。"""
+    while True:
         try:
-            # 使用 standard SMTP + TLS (iCloud/Gmail 常用)
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            server.starttls()  # 启动加密传输
-            server.login(sender_email, auth_code)
-            server.sendmail(sender_email, [receiver_email], msg.as_string())
-            server.quit()
-            print(f"📧 [iCloud预警] 质量报告已成功发送至：{receiver_email}")
-        except Exception as e:
-            # 即使报错（比如网络断了），也只是打印错误，不影响主流程
-            print(f"❌ 邮件发送失败，请检查授权码或网络: {e}")
-    else:
-        # 如果 auth_code 是 None（即没设环境变量），就走这条路
-        print("⏭️  [跳过发送]：未检测到环境变量 EMAIL_PASSWORD，已自动跳过邮件预警环节。")
+            user_input = inputimeout(prompt=prompt_suffix, timeout=timeout).strip().lower()
+        except TimeoutOccurred:
+            print("\n检测到响应超时，已自动执行 [none] 策略，物料已移至废片库。")
+            logger.warning("Timeout Emergency Stop: 600s 无有效输入，已自动执行 [none] 策略，物料已移至废片库。")
+            return "none"
+        if user_input in VALID_REVIEW_INPUTS:
+            logger.info("厂长决策指令: %s", user_input)
+            return user_input
+        logger.warning("无效指令 [%s]，要求重新输入 (y/n/all/none)", user_input or "(空回车)")
+        print(f"⚠️ 无效指令 [{user_input or '(空回车)'}]！请重新输入 (y/n/all/none): ")
 
-# ==========================================
-# 3. 智能总厂核心流程
-# ==========================================
-def run_smart_factory(limit_val=None, gate_val=None, file_md5=None):
-    # 🏭 1. 先让大脑加载配置（这一步建立了基准）
-    DataMachine.load_config("factory_config.yaml")
 
-    # --- 🎯 2. 确定试产时长 (Limit) ---
-    # 逻辑：命令行(args.limit) > YAML配置 > 硬编码默认值(5)
+def run_smart_factory(limit_val=None, gate_val=None, file_md5=None, video_paths=None):
+    """
+    集中质检复核模式：连续完成当前 Batch 所有视频检测 → 质检档案 → 一封体检报告邮件 → 仅对不合格项交互复核 (y/n/all/none)。
+    video_paths: 若传入则只处理该列表（须为绝对路径），不扫描 raw_video。
+    """
+    DataMachine.load_config(os.path.join(_BASE_DIR, "factory_config.yaml"))
+
     if limit_val is not None:
         try:
-            final_limit = int(limit_val)  # 强制转换，防止传进来的是字符串
+            final_limit = int(limit_val)
         except (ValueError, TypeError):
-            print(f"⚠️ [输入异常] limit_val '{limit_val}' 无效，将回退至系统默认值")
             final_limit = DataMachine.config.get("trial_limit_seconds", 5)
     else:
         final_limit = DataMachine.config.get("trial_limit_seconds", 5)
 
-    # --- 🎯 3. 确定最终使用的 gate 阈值 ---
-    # 逻辑：命令行(args.gate) > YAML配置 > 硬编码默认值(80.0)
     if gate_val is not None:
         try:
-            final_gate = float(gate_val)  # 强制转换，兼容 60 和 60.0
+            final_gate = float(gate_val)
         except (ValueError, TypeError):
-            print(f"⚠️ [输入异常] gate_val '{gate_val}' 无效，将回退至系统默认值")
             final_gate = DataMachine.config.get("pass_rate_gate", 80.0)
     else:
         final_gate = DataMachine.config.get("pass_rate_gate", 80.0)
 
-    # 4. 这里的打印就是你的“仪表盘”，确认参数覆盖是否生效
-    print(f"🚀 [指挥部] 生产指令已确认：")
-    print(f"   ├─ 生产时长：{final_limit}s")
-    print(f"   └─ 准入标准：{final_gate}%")
+    print(f"🚀 [指挥部] 生产指令已确认：生产时长 {final_limit}s，准入标准 {final_gate}%")
 
-    # --- A. 初始化批次 ---
-    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_id = now_toronto().strftime("%Y%m%d_%H%M%S")
     pilot_dir = os.path.join(WAREHOUSE, f"Batch_{batch_id}", "1_Pilot_Room")
     mass_dir = os.path.join(WAREHOUSE, f"Batch_{batch_id}", "2_Mass_Production")
+    source_archive_dir = os.path.join(WAREHOUSE, f"Batch_{batch_id}", "0_Source_Video")
 
-    # --- B. 盘点原材料 ---
-    videos = []
-    for ext in ('*.mp4', '*.MP4', '*.mov', '*.MOV'):
-        videos.extend(glob.glob(os.path.join(INPUT_DIR, ext)))
+    if video_paths:
+        videos = [os.path.abspath(p) for p in video_paths if os.path.isfile(p)]
+    else:
+        videos = []
+        for ext in ('*.mp4', '*.MP4', '*.mov', '*.MOV'):
+            videos.extend(glob.glob(os.path.join(INPUT_DIR, ext)))
+        videos = [os.path.abspath(v) for v in videos]
 
     if not videos:
-        print(f"❌ 警告：在 {INPUT_DIR} 中未发现任何视频物料！")
+        if video_paths:
+            print(f"❌ 警告：指定的视频路径无效或文件不存在：{video_paths}")
+        else:
+            print(f"❌ 警告：未发现视频物料：{os.path.abspath(INPUT_DIR)}")
         return
 
-    # --- C. 第一阶段：试产 (Pilot) ---
+    # 先算指纹（移动前），用于质检档案与归档
+    path_to_md5 = {}
+    for v in videos:
+        fp = get_file_md5(v) or ""
+        path_to_md5[v] = fp
+        logger.info("指纹采集结果: 文件=%s 指纹=%s", os.path.basename(v), fp[:16] + "..." if len(fp) > 16 else fp)
+
+    # 阶段 1：连续完成当前 Batch 所有视频检测（不中断）
+    os.makedirs(pilot_dir, exist_ok=True)
     print(f"\n🚀 [阶段 1] 启动试制车间 | 批次: {batch_id} | 试产配置: 每段 {final_limit}s")
     DataMachine.start_production(videos, pilot_dir, batch_id, limit_seconds=final_limit)
 
-    # --- D. 物料入库：将原始视频移动到 Batch 文件夹中 ---
-    # 在 Batch 目录下创建一个 '0_Source_Video' 文件夹
-    # 这样你的 Batch 文件夹里就有：1_Pilot, 2_Mass, 0_Source
-    source_archive_dir = os.path.join(WAREHOUSE, f"Batch_{batch_id}", "0_Source_Video")
     os.makedirs(source_archive_dir, exist_ok=True)
-
     for v_path in videos:
+        dest = os.path.join(source_archive_dir, os.path.basename(v_path))
         try:
-            # 搬运原始视频
-            shutil.move(v_path, os.path.join(source_archive_dir, os.path.basename(v_path)))
-            print(f"📦 [归档成功]: 原始视频 {os.path.basename(v_path)} 已存入 0_Source_Video")
+            logger.info("Moving [%s] to [%s] due to [Batch archive 0_Source_Video]", os.path.basename(v_path), os.path.abspath(dest))
+            shutil.move(v_path, dest)
+            print(f"📦 [归档成功]: {os.path.basename(v_path)} -> 0_Source_Video")
         except Exception as e:
-            print(f"⚠️ [归档失败]: {v_path} 搬运出错: {e}")
+            logger.exception("归档失败: %s -> %s", v_path, e)
+            print(f"⚠️ [归档失败]: {v_path} -> {e}")
 
-    # --- E. 逻辑闸口：质量评估 ---
+    # 质检档案：按文件汇总得分
     with open(os.path.join(pilot_dir, "manifest.json"), 'r', encoding='utf-8') as f:
         results = json.load(f)
 
-    total = len(results)
-    normal = len([item for item in results if item['env'] == "Normal"])
-    pass_rate = (normal / total) * 100 if total > 0 else 0
+    from collections import defaultdict
+    by_source = defaultdict(lambda: {"normal": 0, "total": 0})
+    for r in results:
+        src = r.get("source", "")
+        by_source[src]["total"] += 1
+        if r.get("env") == "Normal":
+            by_source[src]["normal"] += 1
 
-    print(f"📊 试产自检看板：全通率 {pass_rate:.2f}% (合格:{normal}/总计:{total})")
-
-    # --- F. 决策引擎 ---
-    start_mass_prod = False # noqa
-
-    # 👈 [新增]：查账逻辑。看看这个指纹之前量产成功过吗？
-    history_batch = check_reproduce(file_md5) if file_md5 else None
-
-    # 修改判断逻辑：质量达标 且 不是重复物料，才自动量产
-    if pass_rate >= final_gate and not history_batch:
-        print(f"✅ 质量达标（阈值 {final_gate}%），且是新物料，系统自动转入大规模制造...")
-        start_mass_prod = True
-    else:
-        # 进入人工干预环节
-        if history_batch:
-            print(f"⚠️  [档案馆拦截]：检测到该文件已在批次 {history_batch} 中完成过量产！")
+    qc_archive = []
+    for v_path in videos:
+        bname = os.path.basename(v_path)
+        stat = by_source.get(bname, {"normal": 0, "total": 0})
+        total = stat["total"] or 1
+        score = (stat["normal"] / total) * 100
+        passed = score >= final_gate
+        archive_path = os.path.join(source_archive_dir, bname)
+        fp = path_to_md5.get(v_path, "")
+        rep = get_reproduce_info(fp) if fp else None
+        is_dup = rep is not None
+        qc_archive.append({
+            "filename": bname,
+            "archive_path": archive_path,
+            "fingerprint": fp,
+            "score": score,
+            "passed": passed,
+            "is_duplicate": is_dup,
+            "duplicate_batch_id": rep["batch_id"] if rep else None,
+            "duplicate_created_at": rep.get("created_at") if rep else None,
+        })
+        status = "合格" if passed else "不合格"
+        if is_dup:
+            logger.info("质量得分: 文件名=%s 指纹=%s 分数=%.2f%% 状态=重复 曾于批次=%s", bname, (fp or "")[:16], score, rep.get("batch_id", ""))
         else:
-            print(f"⚠️  预警：全通率 ({pass_rate:.2f}%) 低于设定的 {final_gate}%！")
+            logger.info("质量得分: 文件名=%s 指纹=%s 分数=%.2f%% 状态=%s 准入=%.1f%%", bname, (fp or "")[:16], score, status, final_gate)
 
-        # 发送报警邮件
-        report_path = os.path.join(pilot_dir, 'quality_report.html')
-        send_quality_alert(pass_rate, report_path, final_gate)
+    print(f"📊 试产自检看板：批次 {batch_id} 共 {len(qc_archive)} 个文件，准入标准 {final_gate}%")
 
-        print(f"📍 请查看报告: file://{os.path.abspath(report_path)}")
-        print("⏳ [系统进入决策等待] 10分钟内无有效指令将自动判定为放弃/跳过。")
+    # 被拦 = 不合格（质量）或 重复；合格且不重复 = 自动放行
+    qualified = [x for x in qc_archive if x["passed"] and not x["is_duplicate"]]
+    blocked = [x for x in qc_archive if not (x["passed"] and not x["is_duplicate"])]
 
-        while True:
+    report_path = os.path.join(pilot_dir, "quality_report.html")
+    send_batch_qc_report(batch_id, qc_archive, final_gate, report_path)
+    print(f"📍 报告: file://{os.path.abspath(report_path)}")
+
+    to_produce = list(qualified)
+    to_reject = []  # 每个元素为 (item, reason: 'quality'|'duplicate')
+
+    # 交互复核：仅针对被拦项，说明原因（不合格 得分/准入 或 重复 曾于批次），y/n/all/none
+    if blocked:
+        print("\n⏳ [交互复核] 仅接受 y / n / all / none；600 秒无响应将自动执行 [none]。")
+        remaining = list(blocked)
+        while remaining:
+            item = remaining[0]
+            name = item["filename"]
+            if item["is_duplicate"]:
+                reason = f"重复 曾于批次 {item.get('duplicate_batch_id', '')} ({item.get('duplicate_created_at', '')})"
+            else:
+                reason = f"不合格 得分: {item['score']:.1f}% / 准入: {final_gate}%"
+            prompt = f"\n当前: {name} - {reason}\n  [y]放行 [n]丢弃 (y/n/all/none) [600s后默认none]: "
+            cmd = _ask_review_one(prompt, timeout=600)
+            if cmd == "y":
+                to_produce.append(item)
+                remaining.pop(0)
+            elif cmd == "n":
+                to_reject.append((item, "duplicate" if item["is_duplicate"] else "quality"))
+                remaining.pop(0)
+            elif cmd == "all":
+                to_produce.extend(remaining)
+                remaining.clear()
+                print("已选择 [all]，剩余被拦项全部放行。")
+            else:
+                for x in remaining:
+                    to_reject.append((x, "duplicate" if x["is_duplicate"] else "quality"))
+                remaining.clear()
+                print("已选择 [none]，剩余被拦项全部丢弃（不合格→废片库，重复→冗余库）。")
+
+    # 丢弃项：重复 → redundant_archives（原名）；不合格 → rejected_material/Batch_ID_Fails（原名_得分pts）
+    os.makedirs(REJECTED_DIR, exist_ok=True)
+    os.makedirs(REDUNDANT_DIR, exist_ok=True)
+    batch_fails_dir = os.path.join(REJECTED_DIR, f"Batch_{batch_id}_Fails")
+    os.makedirs(batch_fails_dir, exist_ok=True)
+    for item, reason in to_reject:
+        src = item["archive_path"]
+        if not os.path.isfile(src):
+            continue
+        name = item["filename"]
+        if reason == "duplicate":
+            dest = os.path.join(REDUNDANT_DIR, name)
+            dest_abs = os.path.abspath(dest)
+            logger.info("Moving [%s] to [%s] due to [Duplicate -> redundant_archives]", name, dest_abs)
             try:
-                # 👈 [防呆提示语优化]
-                reason = "重复物料" if history_batch else "质量不合格"
-                prompt = f"\n🏭 厂长，检测到【{reason}】。是否【强行】开启全量量产？(y/n) [10min后自动选n]: "
-                user_input = inputimeout(prompt=prompt, timeout=600).strip().lower()
+                shutil.move(src, dest)
+                print(f"📦 [冗余库] {name} 已移入 redundant_archives")
+            except Exception as e:
+                logger.exception("冗余库移动失败: %s -> %s", name, e)
+                print(f"⚠️ [冗余库] 移动失败: {name} -> {e}")
+        else:
+            base, ext = os.path.splitext(name)
+            new_name = f"{base}_{item['score']:.0f}pts{ext}"
+            dest = os.path.join(batch_fails_dir, new_name)
+            dest_abs = os.path.abspath(dest)
+            logger.info("Moving [%s] to [%s] due to [Rejected material _XXpts to Batch_Fails]", name, dest_abs)
+            try:
+                shutil.move(src, dest)
+                print(f"📦 [废片库] {name} -> {new_name}")
+            except Exception as e:
+                logger.exception("废片移动失败: %s -> %s", name, e)
+                print(f"⚠️ [废片库] 移动失败: {name} -> {e}")
 
-                if user_input == 'y':
-                    print("🚀 厂长现场授权：强制启动全量生产！")
-                    start_mass_prod = True
-                    break
-                elif user_input == 'n' or user_input == "":
-                    print("🛑 厂长指令：放弃本次任务。")
-                    return  # 彻底结束
-                else:
-                    print(f"⚠️  无效输入 '{user_input}'，请输入 y 或 n。")
-            except TimeoutOccurred:
-                print("\n\n⏰ [超时熔断] 10 分钟未响应，系统默认放弃。")
-                return
+    # 阶段 2：仅对 to_produce 量产
+    if not to_produce:
+        print("🛑 无物料进入量产，本批次结束。")
+        return
 
-    # --- G. 第二阶段：大规模制造 (Mass Production) ---
-    if start_mass_prod:
-        # 💡 厂长补丁：因为视频被挪到了 0_Source_Video，更新一下路径列表
-        new_video_paths = [os.path.join(source_archive_dir, os.path.basename(v)) for v in videos]
+    new_video_paths = [x["archive_path"] for x in to_produce if os.path.isfile(x["archive_path"])]
+    if not new_video_paths:
+        print("❌ 量产列表为空或文件已移动，跳过量产。")
+        return
 
-        print(f"\n🏭 [阶段 2] 启动大规模制造流水线（全量数据）...")
-        count = DataMachine.start_production(
-            video_paths=new_video_paths,  # 👈 使用更新后的路径
-            target_dir=mass_dir,
-            batch_id=batch_id,
-            limit_seconds=None
-        )
-        print(f"\n🏆 量产报捷！共加工 {count} 张样图，成品存放在: {os.path.abspath(mass_dir)}")
-        # 👈 [新增]：量产成功，向档案馆记账
-        if file_md5:
-            record_production(batch_id, file_md5, pass_rate, "SUCCESS")
-            print(f"📔 [档案入库]: 批次 {batch_id} 的指纹已存入历史大账本。")
+    print(f"\n🏭 [阶段 2] 大规模制造流水线（共 {len(new_video_paths)} 个文件）...")
+    count = DataMachine.start_production(
+        video_paths=new_video_paths,
+        target_dir=mass_dir,
+        batch_id=batch_id,
+        limit_seconds=None,
+    )
+    print(f"🏆 量产报捷！共加工 {count} 张样图，成品存放在: {os.path.abspath(mass_dir)}")
+
+    ts = now_toronto().strftime("%Y-%m-%d %H:%M:%S")
+    for x in to_produce:
+        if x.get("fingerprint"):
+            record_production(batch_id, x["fingerprint"], x["score"], "SUCCESS", created_at=ts)
+    print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")
 
 
 # ==========================================
-# 4. 命令行指挥台入口
+# 4. 命令行入口
 # ==========================================
 if __name__ == "__main__":
-    # 配置命令行参数
-    parser = argparse.ArgumentParser(description="Datafactory 自动化调度指挥系统")
-
-    # 1. 改为 float，这样它就能认 60.0 或者 60 了
+    import log_setup
+    log_setup.setup_logging(_BASE_DIR)
+    parser = argparse.ArgumentParser(description="Datafactory 集中质检复核")
     parser.add_argument("--limit", type=int, default=None, help="试产切片秒数")
-    parser.add_argument("--gate", type=float, default=None, help="准入阈值 (例如: 60.0)")
-
+    parser.add_argument("--gate", type=float, default=None, help="准入阈值")
     args = parser.parse_args()
-
-    # 带着指令启动工厂
     run_smart_factory(limit_val=args.limit, gate_val=args.gate)

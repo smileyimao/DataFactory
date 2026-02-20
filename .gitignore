@@ -2,6 +2,14 @@
 data_warehouse/
 raw_video/
 test_videos/
+redundant_archives/
+rejected_material/
 __pycache__/
 *.pyc
 .DS_Store
+
+# 本地私密环境变量文件（只在自己电脑上用，不提交）
+.env
+
+# 日志目录（按日滚动，不提交）
+logs/

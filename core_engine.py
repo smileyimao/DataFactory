@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import io
 import base64
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from tqdm import tqdm
 from typing import Any, List
 
@@ -243,7 +244,7 @@ class DataMachine:
                     </head>
                     <body>
                         <h1>🏗️ Datafactory Production Report ({mode})</h1>
-                        <p>Batch ID: {batch_id} | Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p>Batch ID: {batch_id} | Generated at: {datetime.now(ZoneInfo('America/Toronto')).strftime('%Y-%m-%d %H:%M:%S')} (Toronto)</p>
 
                         <div class="kpi-box">
                             <div class="kpi {'pass' if pass_rate >= current_gate else 'fail'}">

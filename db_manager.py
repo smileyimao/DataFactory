@@ -1,8 +1,13 @@
 import sqlite3
 import hashlib
 import os
+import logging
 
-DB_NAME = "factory_admin.db"
+logger = logging.getLogger(__name__)
+
+# 数据库固定放在项目根目录，不随当前工作目录变化
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(_BASE_DIR, "factory_admin.db")
 
 def init_db():
     """初始化档案馆：建立指纹表和生产记录表"""
@@ -42,21 +47,54 @@ def get_file_md5(file_path):
         return ""
 
 def check_reproduce(md5):
-    """【查账】：看看这个指纹之前是否量产成功过"""
+    """【查账】：看看这个指纹之前是否量产成功过，返回 batch_id 或 None"""
+    info = get_reproduce_info(md5)
+    return info["batch_id"] if info else None
+
+
+def get_reproduce_info(md5):
+    """
+    【查账详情】：若该指纹曾量产成功，返回批次与处理时间，供邮件正文使用。
+    返回 None 或 {"batch_id": str, "created_at": str}，created_at 为可读时间。
+    """
+    if not md5:
+        return None
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT batch_id FROM production_history WHERE fingerprint = ? AND status = 'SUCCESS'", (md5,))
-    result = cursor.fetchone()
+    cursor.execute(
+        "SELECT batch_id, created_at FROM production_history WHERE fingerprint = ? AND status = 'SUCCESS'",
+        (md5,),
+    )
+    row = cursor.fetchone()
     conn.close()
-    return result[0] if result else None
+    if not row:
+        return None
+    batch_id, created_at = row
+    logger.info("数据库查重命中: fingerprint 对应批次=%s 处理时间=%s", batch_id, created_at)
+    # 将数据库时间转为可读格式（若已是 str 则尽量解析）
+    try:
+        if isinstance(created_at, str) and " " in created_at:
+            created_at_str = created_at[:19].replace("T", " ")
+        else:
+            created_at_str = str(created_at)[:19] if created_at else "未知时间"
+    except Exception:
+        created_at_str = str(created_at) if created_at else "未知时间"
+    return {"batch_id": batch_id, "created_at": created_at_str}
 
-def record_production(batch_id, md5, pass_rate, status):
-    """【登报】：把这次生产的结果记入档案"""
+def record_production(batch_id, md5, pass_rate, status, created_at=None):
+    """【登报】：把这次生产的结果记入档案。created_at 为多伦多本地时间字符串（YYYY-MM-DD HH:MM:SS），不传则用数据库当前时间。"""
+    if created_at is None:
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            created_at = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+        except ImportError:
+            created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO production_history (batch_id, fingerprint, pass_rate, status)
-        VALUES (?, ?, ?, ?)
-    ''', (batch_id, md5, pass_rate, status))
+        INSERT OR REPLACE INTO production_history (batch_id, fingerprint, pass_rate, status, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (batch_id, md5, pass_rate, status, created_at))
     conn.commit()
     conn.close()
