@@ -4,15 +4,19 @@ def boot_system():
     import sys
     os.environ['MPLBACKEND'] = 'Agg'
     os.environ['PYTHONUNBUFFERED'] = '1'
-    project_root = os.path.dirname(os.path.abspath(__file__))
+    _legacy_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(_legacy_dir)
     if project_root not in sys.path:
-        sys.path.append(project_root)
+        sys.path.insert(0, project_root)
+    if _legacy_dir not in sys.path:
+        sys.path.append(_legacy_dir)
 boot_system()
 
 import os
 _base = os.path.dirname(os.path.abspath(__file__))
-import log_setup
-log_setup.setup_logging(_base)
+_project_root = os.path.dirname(_base)
+from config.logging import setup_logging
+setup_logging(_project_root)
 
 import time
 import threading
