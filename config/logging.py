@@ -1,4 +1,4 @@
-# 集中配置：项目根目录下 logs/，按日文件，多伦多时区，格式 [时间] [级别] [模块] - 消息
+# config/logging.py — 应用日志配置（多伦多时区、按日文件）
 import logging
 import os
 from datetime import datetime
@@ -17,7 +17,7 @@ class TorontoFormatter(logging.Formatter):
         return ct.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def setup_logging(base_dir):
+def setup_logging(base_dir: str) -> None:
     """
     在 base_dir 下创建 logs/，配置文件日志：INFO 及以上写入 logs/factory_[日期].log。
     格式：[时间] [级别] [模块] - 消息内容。
@@ -30,7 +30,6 @@ def setup_logging(base_dir):
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
-    # 避免重复添加 handler（多次调用 setup 时）
     log_file_abs = os.path.abspath(log_file)
     for h in root.handlers:
         if getattr(h, "baseFilename", None) == log_file_abs:

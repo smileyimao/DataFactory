@@ -360,8 +360,12 @@ def run_smart_factory(limit_val=None, gate_val=None, file_md5=None, video_paths=
 # 4. 命令行入口
 # ==========================================
 if __name__ == "__main__":
-    import log_setup
-    log_setup.setup_logging(_BASE_DIR)
+    import sys
+    _project_root = os.path.dirname(_BASE_DIR)
+    if _project_root not in sys.path:
+        sys.path.insert(0, _project_root)
+    from config.logging import setup_logging
+    setup_logging(_project_root)
     parser = argparse.ArgumentParser(description="Datafactory 集中质检复核")
     parser.add_argument("--limit", type=int, default=None, help="试产切片秒数")
     parser.add_argument("--gate", type=float, default=None, help="准入阈值")

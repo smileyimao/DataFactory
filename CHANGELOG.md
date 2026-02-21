@@ -1,5 +1,76 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
+## [v1.6] - 2026-02-20
+### 📝 版本概览
+地基加固：存储与 DB 归拢到 `storage/`、`db/`，报表持久化到 `storage/reports/`，为 v2.x 预埋 sync_id 与 Conflict 扩展点，启动时自建目录并初始化 DB。
+
+### 🚀 新增 / 变更
+
+#### 1. 存储与运维 (storage/ & db/)
+* **storage/**：raw、archive、rejected、redundant、test、reports；配置 paths 的 value 指向上述子目录（key 仍为 raw_video、data_warehouse 等）。
+* **db/**：数据库路径改为 `db/factory_admin.db`；若根目录曾有 `factory_admin.db`，已迁到 `db/`。
+* **报表持久化**：每批 QC 生成的 HTML 报告和图表额外写入 `storage/reports/`（`{batch_id}_quality_report.html`、`{batch_id}_chart.png`）。
+* **文档**：Roadmap.md 已移至 `docs/`。
+
+#### 2. 数据协议预埋 (v2.x)
+* **db_tools**：`production_history` 表新增 `sync_id VARCHAR(64) NULL`；`record_production` 增加可选参数 `sync_id`，用于后续对齐外部传感器时间戳。
+* **quality_tools**：在 `decide_env` 里预留 Conflict 标签的注释/扩展点，为人机冲突检测做准备。
+
+#### 3. 健壮性
+* **config/settings.yaml**：paths 全部指向 `storage/` 与 `db/`（key 不变）。
+* **config/config_loader.py**：新增 `init_storage_structure()`，启动时创建 `storage/*` 和 `db/`；默认路径已同步为新结构。
+* **main.py**：启动时调用 `init_storage_structure()`，若有 db_file 则调用 `db_tools.init_db(db_path)`，保证表与 sync_id 列存在。
+* **requirements.txt**：根目录已添加（PyYAML、opencv-python-headless、tqdm、pandas、matplotlib、python-dotenv、watchdog、inputimeout）。
+
+#### 4. 门户与流程
+* **README.md**：项目定位、架构索引、快速启动、v1.x/v2.x 说明，指向 docs/ 与 CHANGELOG。
+* **流程闭环**：`python main.py` → set_base_dir → init_storage_structure → load_config → init_db → pipeline.run_smart_factory 或 guard.run_guard；从 storage/raw 取视频 → QC（报告写 Batch 下并复制到 storage/reports/）→ 复核 → 归档到 storage/archive | rejected | redundant，并写 DB（可传 sync_id）。
+
+### 📌 备注
+* 根目录可能仍存在旧文件夹（raw_video、data_warehouse、rejected_material、redundant_archives、test_videos），内容尚未迁入 storage/ 对应子目录；可按需做一次迁移并清理旧目录。
+
+#### 5. 2.0 前可选收尾（已完成）
+* **基础指标完整化**：各阶段耗时（Ingest/QC/Review/Archive）、吞吐量（GB/h、文件/h）在批次结束时输出并写入 DB 表 `batch_metrics`；`db_tools.init_db` 增加 `batch_metrics` 表创建，`db_tools.record_batch_metrics` 写入每批指标。
+* **数据清洗与标注管道扩展**：`engines/labeling_export.py` 扫描 `storage/archive` 生成待标注清单；`scripts/export_for_labeling.py` 导出至 `storage/for_labeling/manifest_for_labeling.json`，供 Label Studio / CVAT 等导入；配置增加可选 `paths.labeling_export`，启动时创建 `storage/for_labeling`。
+
+---
+
+## [v1.5] - 2026-02-20
+### 📝 版本概览
+架构重构：按「流程 + 工具 + 决策 + 配置」拆分，新增 `config/`、`core/`、`engines/`，入口统一为 `main.py`。行为与 v1.3 一致，便于后续 v2 扩展。
+
+### 🚀 新增 / 变更
+
+#### 1. 配置集中化 (config/)
+* **config/settings.yaml**：路径、ingest（batch_wait_seconds、video_extensions）、quality_thresholds、production_setting、review、email_setting。
+* **config/config_loader.py**：统一加载，路径解析为绝对路径；`get_quality_thresholds()` 供质检使用。
+
+#### 2. 工具类 (engines/)
+* **quality_tools**：`analyze_frame()` 只返回数值；`decide_env()` 为决策层，根据配置返回 Normal/Too Dark/Blurry 等。
+* **fingerprinter**：MD5 计算。
+* **db_tools**：init_db、get_reproduce_info、record_production（接受 db_path）。
+* **notifier**：send_mail(email_cfg, subject, body, report_path)。
+* **file_tools**：wait_file_stable、list_video_paths。
+* **report_tools**：generate_json_manifest、generate_html_report。
+* **production_tools**：run_production（视频试制/量产，调用 quality_tools + report_tools）。
+
+#### 3. 流程与决策 (core/)
+* **ingest**：get_video_paths(cfg, video_paths=None)。
+* **qc_engine**：run_qc(cfg, video_paths) → 指纹、试制、源归档、建 qc_archive、发邮件；返回 qualified/blocked/path_info。
+* **reviewer**：review_blocked(blocked, gate, timeout_seconds) → to_produce, to_reject。
+* **archiver**：archive_rejected、archive_produced。
+* **pipeline**：run_smart_factory(video_paths=None, limit_val=None, gate_val=None)。
+* **guard**：run_guard() — 开机扫描 + watchdog 凑批，调用 pipeline。
+
+#### 4. 入口
+* **main.py**：`python main.py` 单次运行；`python main.py --guard` 监控模式；`--limit` / `--gate` 覆盖配置。
+* 原 `main_factory.py`、`factory_guard.py` 保留，推荐使用 `main.py`。
+
+#### 5. 基础指标
+* 批次结束输出：处理文件数、总大小 (GB)、耗时 (秒)；日志记录批次摘要。
+
+---
+
 ## [v1.3] - 2026-02-20
 ### 📝 版本概览
 本版本完成**集中质检复核**与**批处理审批**逻辑重构：先整批检测（质量+重复），再统一发一封汇总邮件，最后逐项交互复核 (y/n/all/none)。同时引入专业 Logging、多伦多时区、废片/冗余分目录与路径加固。

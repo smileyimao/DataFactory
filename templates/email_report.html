@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DataFactory 批次质检报告</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 24px; background: #f4f7f6; color: #333; }
+    .container { max-width: 640px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
+    .header { background: #34495e; color: #fff; padding: 20px 24px; }
+    .header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+    .header .batch { opacity: 0.9; font-size: 0.9rem; margin-top: 4px; }
+    .body { padding: 24px; }
+    .kpi { display: flex; gap: 16px; margin-bottom: 20px; }
+    .kpi-box { flex: 1; text-align: center; padding: 16px; border-radius: 8px; color: #fff; }
+    .kpi-box.pass { background: #2ecc71; }
+    .kpi-box.fail { background: #e74c3c; }
+    .kpi-box.neutral { background: #3498db; }
+    .kpi-box h3 { margin: 0 0 4px 0; font-size: 0.85rem; opacity: 0.95; }
+    .kpi-box .value { font-size: 1.75rem; font-weight: 700; }
+    .section { margin-bottom: 20px; }
+    .section h3 { margin: 0 0 12px 0; font-size: 1rem; color: #2c3e50; }
+    .summary { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5; color: #555; }
+    .footer { padding: 16px 24px; background: #ecf0f1; font-size: 0.8rem; color: #7f8c8d; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>{{subject}}</h1>
+      <div class="batch">Batch: {{batch_id}} · {{generated_at}}</div>
+    </div>
+    <div class="body">
+      <div class="kpi">
+        <div class="kpi-box {{pass_rate_class}}">
+          <h3>通过率 (Gate: {{pass_rate_gate}}%)</h3>
+          <div class="value">{{pass_rate}}%</div>
+        </div>
+        <div class="kpi-box neutral">
+          <h3>总样本数</h3>
+          <div class="value">{{total_samples}}</div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>本批摘要</h3>
+        <div class="summary">{{body_summary}}</div>
+      </div>
+      <div class="section">
+        <h3>报告与图表</h3>
+        <p style="margin:0; font-size:0.9rem;">详见附件或 <code>storage/reports/</code> 下 {{batch_id}}_quality_report.html / {{batch_id}}_chart.png。</p>
+      </div>
+    </div>
+    <div class="footer">
+      DataFactory 工业视频质检流水线 · 本邮件由系统自动发送
+    </div>
+  </div>
+</body>
+</html>

@@ -1,9 +1,18 @@
-# 排除所有数据产出
+# 排除所有数据产出（旧根目录名 + 新 storage/db 下的数据）
 data_warehouse/
 raw_video/
 test_videos/
 redundant_archives/
 rejected_material/
+storage/archive/
+storage/raw/
+storage/rejected/
+storage/redundant/
+storage/test/
+storage/reports/
+storage/for_labeling/
+db/*.db
+db/*.sqlite
 __pycache__/
 *.pyc
 .DS_Store
