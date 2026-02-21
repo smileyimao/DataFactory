@@ -1,3 +1,6 @@
+# 项目虚拟环境（只用 venv，不用 conda）
+.venv/
+
 # 排除所有数据产出（旧根目录名 + 新 storage/db 下的数据）
 data_warehouse/
 raw_video/

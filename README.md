@@ -6,8 +6,11 @@
 
 ## 快速启动
 
+**环境**：仅需 Python 3.9+ 与 pip，无需 Conda。推荐在项目下建 venv：
+
 ```bash
-# 环境（Python 3.9+）
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env   # 编辑 .env 填入邮件等敏感配置（可选）
 

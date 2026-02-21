@@ -50,7 +50,7 @@
 ## 快速对照
 
 ```
-ldg/
+DataFactory/
 ├── main.py           # 唯一入口
 ├── README.md         # 门户
 ├── CHANGELOG.md      # 版本记录
