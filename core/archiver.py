@@ -48,28 +48,66 @@ def archive_rejected(
                 logger.exception("废片移动失败: %s -> %s", name, e)
 
 
-def archive_produced(
+def _run_produce_chunk(
     cfg: dict,
-    to_produce: List[Dict[str, Any]],
-    path_info: Dict[str, Any],
+    items: List[Dict[str, Any]],
+    target_dir: str,
+    batch_id: str,
+    label: str,
 ) -> None:
-    """对 to_produce 执行量产（写 2_Mass_Production）并写入 production_history。"""
+    """对一批 item 执行量产（抽帧+报告）并写入 production_history。"""
     paths = cfg.get("paths", {})
     db_path = paths.get("db_file", "")
-    mass_dir = path_info.get("mass_dir", "")
+    new_video_paths = [x["archive_path"] for x in items if os.path.isfile(x.get("archive_path", ""))]
+    if not new_video_paths:
+        return
+    count = production_tools.run_production(new_video_paths, target_dir, batch_id, cfg, limit_seconds=None)
+    print(f"🏆 {label}：共加工 {count} 张样图 -> {os.path.abspath(target_dir)}")
+    ts = now_toronto().strftime("%Y-%m-%d %H:%M:%S")
+    for x in items:
+        if x.get("fingerprint"):
+            db_tools.record_production(db_path, batch_id, x["fingerprint"], x["score"], "SUCCESS", created_at=ts)
+
+
+def archive_produced(
+    cfg: dict,
+    to_fuel: List[Dict[str, Any]],
+    to_human: List[Dict[str, Any]],
+    path_info: Dict[str, Any],
+) -> None:
+    """按置信分层落盘：高置信 -> 2_高置信_燃料，复核通过 -> 3_待人工；否则合并写 2_Mass_Production。"""
     batch_id = path_info.get("batch_id", "")
+    tiered = path_info.get("confidence_tiered_output", True)
+
+    if tiered:
+        os.makedirs(path_info.get("fuel_dir", ""), exist_ok=True)
+        os.makedirs(path_info.get("human_dir", ""), exist_ok=True)
+        if to_fuel:
+            print(f"\n🏭 [阶段 2] 高置信·燃料（共 {len(to_fuel)} 个文件）...")
+            _run_produce_chunk(
+                cfg, to_fuel,
+                path_info["fuel_dir"], batch_id,
+                "高置信·燃料",
+            )
+        if to_human:
+            print(f"\n🏭 [阶段 2] 待人工（共 {len(to_human)} 个文件）...")
+            _run_produce_chunk(
+                cfg, to_human,
+                path_info["human_dir"], batch_id,
+                "待人工",
+            )
+        if not to_fuel and not to_human:
+            print("🛑 无物料进入量产，本批次结束。")
+        else:
+            print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")
+        return
+
+    # 兼容：不按置信分层时，合并写 2_Mass_Production
+    to_produce = to_fuel + to_human
     if not to_produce:
         print("🛑 无物料进入量产，本批次结束。")
         return
-    new_video_paths = [x["archive_path"] for x in to_produce if os.path.isfile(x.get("archive_path", ""))]
-    if not new_video_paths:
-        print("❌ 量产列表为空或文件已移动，跳过量产。")
-        return
-    print(f"\n🏭 [阶段 2] 大规模制造流水线（共 {len(new_video_paths)} 个文件）...")
-    count = production_tools.run_production(new_video_paths, mass_dir, batch_id, cfg, limit_seconds=None)
-    print(f"🏆 量产报捷！共加工 {count} 张样图，成品存放在: {os.path.abspath(mass_dir)}")
-    ts = now_toronto().strftime("%Y-%m-%d %H:%M:%S")
-    for x in to_produce:
-        if x.get("fingerprint"):
-            db_tools.record_production(db_path, batch_id, x["fingerprint"], x["score"], "SUCCESS", created_at=ts)
+    mass_dir = path_info.get("mass_dir", "")
+    print(f"\n🏭 [阶段 2] 大规模制造流水线（共 {len(to_produce)} 个文件）...")
+    _run_produce_chunk(cfg, to_produce, mass_dir, batch_id, "量产")
     print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")

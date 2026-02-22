@@ -15,11 +15,15 @@ logger = logging.getLogger(__name__)
 MEDIA_EXT = {".mp4", ".mov", ".avi", ".mkv", ".jpg", ".jpeg", ".png", ".bmp"}
 
 
+# 产出子目录：按置信分层（2_高置信_燃料、3_待人工）或旧版单一 2_Mass_Production
+OUTPUT_SUBDIRS = ("2_高置信_燃料", "3_待人工", "2_Mass_Production")
+
+
 def list_batch_media(batch_dir: str) -> List[Dict[str, Any]]:
-    """扫描 Batch 目录下 2_Mass_Production、1_QC（无则用 1_Pilot_Room 兼容旧批次）中的媒体文件。"""
+    """扫描 Batch 目录下产出子目录（2_高置信_燃料、3_待人工、2_Mass_Production）及 1_QC 中的媒体文件。"""
     out = []
     qc_sub = "1_QC" if os.path.isdir(os.path.join(batch_dir, "1_QC")) else "1_Pilot_Room"
-    for sub in ("2_Mass_Production", qc_sub):
+    for sub in OUTPUT_SUBDIRS + (qc_sub,):
         d = os.path.join(batch_dir, sub)
         if not os.path.isdir(d):
             continue

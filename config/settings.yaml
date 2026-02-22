@@ -2,7 +2,7 @@
 # 路径均相对于项目根目录 (base_dir)，由 config_loader 解析为绝对路径
 
 paths:
-  raw_video: "storage/raw"
+  raw_video: "/Users/mac/Downloads/video"
   data_warehouse: "storage/archive"
   rejected_material: "storage/rejected"
   redundant_archives: "storage/redundant"
@@ -28,9 +28,12 @@ quality_thresholds:
 
 production_setting:
   qc_sample_seconds: 10   # 每视频抽检秒数，用于质量判定（重复检测+不合格检测）
-  pass_rate_gate: 85.0
+  pass_rate_gate: 85.0    # 单门槛时：>= 为合格
+  dual_gate_high: null   # v2 双门槛：>= 自动放行；null 则仅用 pass_rate_gate
+  dual_gate_low: null    # v2 双门槛：< 自动拦截；null 则仅用单门槛
   save_normal: true
   save_warning: true
+  confidence_tiered_output: true   # true=按置信分层落盘(2_高置信_燃料、3_待人工)；false=全部写 2_Mass_Production
 
 review:
   timeout_seconds: 600
@@ -41,6 +44,33 @@ email_setting:
   smtp_port: 587
   sender: "smileyimao@icloud.com"
   receiver: "xituled@gmail.com"
+
+# v2.0 视觉质检（YOLO）：开关、模型路径、抽帧与推理参数（均从配置读取，无硬编码）
+vision:
+  enabled: true
+  model_path: "yolov8n.pt"            # 留空则不加载；可填 yolov8n.pt 或本地 .pt 路径
+  sample_seconds: 10       # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
+  # 推理参数（predict）：未配置时由 config_loader 填入工业默认值
+  conf: 0.25                # 置信度阈值 [0,1]
+  iou: 0.45                 # NMS IoU 阈值
+  classes: null             # 过滤类别 ID 列表，null 为全部
+  device: null              # 推理设备，如 "cuda:0" / "cpu" / null 自动
+  max_det: 300              # 每图最大检测框数
+  imgsz: 640                # 输入尺寸（边长）
+  half: false               # FP16 半精度（GPU）
+  verbose: false            # 是否打印推理日志
+  # edge_lightweight: false   # v3 Edge 轻量化预留
+
+# v2.0 MLflow（可选）：批次级实验与指标记录
+mlflow:
+  enabled: true
+  experiment_name: "datafactory"
+  tracking_uri: null   # null 为本地 ./mlruns
+
+# M2 版本映射：日志与元数据中可写可读，便于 v4 血缘与审计
+version_mapping:
+  algorithm_version: "rules_v1"   # 规则质检算法版本
+  vision_model_version: ""       # 视觉模型版本，留空则由运行时加载的模型路径填充
 
 # 开机自检与滚动清零（全球/边缘部署可按存储环境覆盖）
 startup_self_check: true    # 启动时校验配置与关键目录可写，失败则退出

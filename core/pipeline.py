@@ -57,6 +57,62 @@ def _batch_summary(
         )
 
 
+def _maybe_log_mlflow(
+    cfg: dict,
+    batch_id: str,
+    file_count: int,
+    total_bytes: int,
+    start_time: float,
+    t_ingest: float,
+    t_qc: float,
+    t_review: float,
+    t_archive: float,
+    path_info: dict,
+) -> None:
+    """若 config mlflow.enabled 为 True，则记录批次级实验与指标到 MLflow。"""
+    mf = cfg.get("mlflow") or {}
+    if not mf.get("enabled"):
+        return
+    try:
+        import mlflow
+        tracking_uri = mf.get("tracking_uri")
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment(mf.get("experiment_name", "datafactory"))
+        elapsed = t_archive - start_time
+        size_gb = total_bytes / (1024 ** 3)
+        throughput_gb_h = size_gb / (elapsed / 3600) if elapsed > 0 else 0.0
+        with mlflow.start_run(run_name=f"batch_{batch_id}"):
+            mlflow.log_params({
+                "batch_id": batch_id,
+                "algorithm_version": (path_info.get("version_mapping") or {}).get("algorithm_version", ""),
+                "vision_model_version": (path_info.get("version_mapping") or {}).get("vision_model_version", ""),
+                "gate": path_info.get("gate"),
+            })
+            mlflow.log_metrics({
+                "file_count": file_count,
+                "size_gb": size_gb,
+                "elapsed_sec": elapsed,
+                "throughput_gb_per_h": throughput_gb_h,
+                "d_ingest_sec": t_ingest - start_time,
+                "d_qc_sec": t_qc - t_ingest,
+                "d_review_sec": t_review - t_qc,
+                "d_archive_sec": t_archive - t_review,
+            })
+            industrial_report_path = path_info.get("industrial_report_path")
+            if industrial_report_path and os.path.isfile(industrial_report_path):
+                mlflow.log_artifact(industrial_report_path, artifact_path="industrial_report")
+            vision_report_path = path_info.get("vision_report_path")
+            if vision_report_path and os.path.isfile(vision_report_path):
+                mlflow.log_artifact(vision_report_path, artifact_path="vision_report")
+            vision_total_detections = path_info.get("vision_total_detections")
+            if vision_total_detections is not None:
+                mlflow.log_metric("vision_total_detections", vision_total_detections)
+        logger.info("MLflow 已记录批次 run: batch_id=%s", batch_id)
+    except Exception as e:
+        logger.warning("MLflow 记录失败（已跳过）: %s", e)
+
+
 def run_smart_factory(
     video_paths: Optional[List[str]] = None,
     gate_val: Optional[float] = None,
@@ -89,18 +145,20 @@ def run_smart_factory(
     t_ingest = time.time()
     total_bytes = sum(os.path.getsize(p) for p in videos if os.path.isfile(p))
 
-    qc_archive, qualified, blocked, path_info = qc_engine.run_qc(cfg, videos)
+    qc_archive, qualified, blocked, auto_reject, path_info = qc_engine.run_qc(cfg, videos)
     t_qc = time.time()
-    to_produce = list(qualified)
-    to_reject = []
+    to_fuel = list(qualified)
+    to_reject = list(auto_reject)
+    to_human = []
     if blocked:
         timeout = cfg.get("review", {}).get("timeout_seconds", 600)
-        added_produce, to_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
-        to_produce.extend(added_produce)
+        added_produce, review_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
+        to_human = list(added_produce)
+        to_reject.extend(review_reject)
     t_review = time.time()
 
     archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
-    archiver.archive_produced(cfg, to_produce, path_info)
+    archiver.archive_produced(cfg, to_fuel, to_human, path_info)
     t_archive = time.time()
 
     _batch_summary(
@@ -113,4 +171,16 @@ def run_smart_factory(
         t_review,
         t_archive,
         db_path=cfg.get("paths", {}).get("db_file"),
+    )
+    _maybe_log_mlflow(
+        cfg,
+        path_info["batch_id"],
+        len(videos),
+        total_bytes,
+        start_time,
+        t_ingest,
+        t_qc,
+        t_review,
+        t_archive,
+        path_info,
     )

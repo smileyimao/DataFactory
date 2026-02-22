@@ -59,6 +59,30 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     rc.setdefault("logs_retention_days", 30)
     rc.setdefault("reports_retention_days", 30)
     rc.setdefault("archive_retention_days", 0)
+    # v2.0 vision：推理参数未配置时使用工业默认值（不在 vision_detector 中硬编码）
+    data.setdefault("vision", {})
+    v = data["vision"]
+    v.setdefault("enabled", False)
+    v.setdefault("model_path", "")
+    v.setdefault("sample_seconds", 10)
+    v.setdefault("conf", 0.25)
+    v.setdefault("iou", 0.45)
+    v.setdefault("classes", None)
+    v.setdefault("device", None)
+    v.setdefault("max_det", 300)
+    v.setdefault("imgsz", 640)
+    v.setdefault("half", False)
+    v.setdefault("verbose", False)
+    # M2 版本映射
+    data.setdefault("version_mapping", {})
+    vm = data["version_mapping"]
+    vm.setdefault("algorithm_version", "rules_v1")
+    vm.setdefault("vision_model_version", "")
+    data.setdefault("mlflow", {})
+    mf = data["mlflow"]
+    mf.setdefault("enabled", False)
+    mf.setdefault("experiment_name", "datafactory")
+    mf.setdefault("tracking_uri", None)
     return data
 
 
@@ -103,8 +127,11 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
         "production_setting": {
             "qc_sample_seconds": 10,
             "pass_rate_gate": 85.0,
+            "dual_gate_high": None,
+            "dual_gate_low": None,
             "save_normal": True,
             "save_warning": True,
+            "confidence_tiered_output": True,
         },
         "review": {"timeout_seconds": 600, "valid_inputs": ["y", "n", "all", "none"]},
         "email_setting": {},
@@ -114,6 +141,24 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "reports_retention_days": 30,
             "archive_retention_days": 0,
         },
+        "vision": {
+            "enabled": False,
+            "model_path": "",
+            "sample_seconds": 10,
+            "conf": 0.25,
+            "iou": 0.45,
+            "classes": None,
+            "device": None,
+            "max_det": 300,
+            "imgsz": 640,
+            "half": False,
+            "verbose": False,
+        },
+        "version_mapping": {
+            "algorithm_version": "rules_v1",
+            "vision_model_version": "",
+        },
+        "mlflow": {"enabled": False, "experiment_name": "datafactory", "tracking_uri": None},
     }
 
 
