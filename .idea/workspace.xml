@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="74e64fbb-3bb2-43ec-b4e8-ccc78ad756aa" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/DataFactory.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/ldg.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CHANGELOG.md" beforeDir="false" afterPath="$PROJECT_DIR$/CHANGELOG.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/settings.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config/settings.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/startup.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/startup.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/pipeline.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/qc_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/qc_engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/Roadmap.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/Roadmap.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/implementation_checklist.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/implementation_checklist.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engines/notifier.py" beforeDir="false" afterPath="$PROJECT_DIR$/engines/notifier.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engines/production_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/engines/production_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engines/quality_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/engines/quality_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engines/report_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/engines/report_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/reset_factory.py" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/reset_factory.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/smoke_test.py" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;smileyimao&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/smileyimao/DataFactory.git&quot;,
+    &quot;accountId&quot;: &quot;1cef0d52-c34c-4b91-978e-d631bce63530&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 0
+}</component>
+  <component name="ProjectId" id="39xgiCrKKkrPws169knTm2hREel" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.main.executor": "Run",
+    "Python.reset_factory.executor": "Run",
+    "Python.test_dual_gate_mlflow.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "/Users/mac/Developer/DataFactory",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-fc1d50d2d915-aa17d162503b-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-243.24978.54" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="74e64fbb-3bb2-43ec-b4e8-ccc78ad756aa" name="Changes" comment="" />
+      <created>1771643261526</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1771643261526</updated>
+    </task>
+    <servers />
+  </component>
+</project>

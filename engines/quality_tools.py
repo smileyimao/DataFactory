@@ -1,7 +1,16 @@
 # engines/quality_tools.py — 质检传感器，只返回数值，不返回合格/不合格判断
+# v2 #19：不合格检测可扩展 — 通过 register_extra_check 注册额外检测项，由 decide_env 统一调度
 import cv2
 import numpy as np
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Callable, List
+
+# 可插拔检测项：每项为 (raw, cfg) -> Optional[str]，返回非 None 时覆盖 env（如 "Black Frame", "Resolution Mismatch"）
+_EXTRA_CHECK_REGISTRY: List[Callable[[Dict[str, float], Dict[str, Any]], Optional[str]]] = []
+
+
+def register_extra_check(fn: Callable[[Dict[str, float], Dict[str, Any]], Optional[str]]) -> None:
+    """注册额外不合格检测项；decide_env 在规则判断后依次调用，若返回非空字符串则覆盖 env。"""
+    _EXTRA_CHECK_REGISTRY.append(fn)
 
 def analyze_frame(frame: np.ndarray, prev_gray: Optional[np.ndarray] = None) -> Tuple[Dict[str, float], Optional[np.ndarray]]:
     """
@@ -52,4 +61,12 @@ def decide_env(raw: Dict[str, float], cfg: Dict[str, Any]) -> str:
             env = "High Jitter"
     # 预留：v2.x 人机冲突检测可在此注入 env = "Conflict"
     # if cfg.get("conflict_detection") and <external_signal>: env = "Conflict"
+    for fn in _EXTRA_CHECK_REGISTRY:
+        try:
+            extra = fn(raw, cfg)
+            if extra:
+                env = extra
+                break
+        except Exception:
+            continue
     return env

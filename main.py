@@ -51,6 +51,7 @@ def main():
         guard.run_guard()
     else:
         pipeline.run_smart_factory(gate_val=args.gate)
+        print("\n💡 提示：要持续监控 storage/raw 目录，请使用: python main.py --guard")
 
 
 if __name__ == "__main__":

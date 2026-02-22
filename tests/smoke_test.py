@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scripts/smoke_test.py v2.0 — 冒烟测试：固若金汤版
+# tests/smoke_test.py v2.0 — 冒烟测试：固若金汤版
 """
 1) 生成测试物料（清空 test/ 保留 original/，标准件/变异件/冗余件，统一小写 .mov）
 2) 指纹校验：生成后对关键文件做 MD5 校验，若 original 素材两两雷同则报错退出
@@ -16,10 +16,10 @@ import tempfile
 import logging
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.path.dirname(SCRIPT_DIR)
-sys.path.insert(0, BASE_DIR)
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, PROJECT_ROOT)
 
-TEST_ROOT = os.path.join(BASE_DIR, "storage", "test")
+TEST_ROOT = os.path.join(PROJECT_ROOT, "storage", "test")
 ORIGINAL_DIR = os.path.join(TEST_ROOT, "original")
 ORIGINAL_VIDEOS = ["normal.mov", "jitter.mov", "black.mov"]
 ORIGINAL_IMAGE = "image.jpg"
@@ -162,7 +162,7 @@ def _ensure_test_data() -> bool:
 
 def _check_fingerprints() -> None:
     """生成后校验：normal/jitter/black 两两 MD5 不得相同，否则报错退出。"""
-    sys.path.insert(0, BASE_DIR)
+    sys.path.insert(0, PROJECT_ROOT)
     from engines import fingerprinter
 
     paths = []
@@ -201,10 +201,10 @@ def run() -> int:
     from core import qc_engine
     from engines import db_tools
 
-    config_loader.set_base_dir(BASE_DIR)
+    config_loader.set_base_dir(PROJECT_ROOT)
     cfg = config_loader.load_config()
     paths_cfg = cfg.get("paths", {})
-    test_root = os.path.join(BASE_DIR, "storage", "test")
+    test_root = os.path.join(PROJECT_ROOT, "storage", "test")
 
     with tempfile.TemporaryDirectory(prefix="smoke_test_") as tmp:
         temp_raw = os.path.join(tmp, "raw")
@@ -245,7 +245,7 @@ def run() -> int:
         results = {}
 
         if normal_path and os.path.isfile(normal_path):
-            qc_archive, qualified, blocked, path_info = qc_engine.run_qc(cfg, [normal_path])
+            qc_archive, qualified, blocked, _, path_info = qc_engine.run_qc(cfg, [normal_path])
             for item in qc_archive:
                 results[item["filename"]] = _actual_category(item)
             batch_id = path_info.get("batch_id", "")
@@ -262,7 +262,7 @@ def run() -> int:
         if other_paths:
             remaining = [p for p in other_paths if os.path.isfile(p)]
             if remaining:
-                qc_archive, _, _, _ = qc_engine.run_qc(cfg, remaining)
+                qc_archive, _, _, _, _ = qc_engine.run_qc(cfg, remaining)
                 for item in qc_archive:
                     results[item["filename"]] = _actual_category(item)
 

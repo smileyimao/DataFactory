@@ -1,91 +1,106 @@
 # DataFactory
 
-工业视频质检流水线：**原始素材 → 质检（重复检测 + 不合格检测）→ 人工复核 → 归档**（合格/废片/冗余）。面向 v2.x 多模态与 MLOps 预留扩展。
+Industrial video QC pipeline: **raw material → QC (duplicate + quality + optional AI) → human review → archive** (passed / rejected / redundant). Designed for traceability and MLOps; extensible toward v3+ edge and multimodal.
 
 ---
 
-## 快速启动
+## Quick start
 
-**环境**：仅需 Python 3.9+ 与 pip，无需 Conda。推荐在项目下建 venv：
+**Environment**: Python 3.9+ and pip only (no Conda). Use a venv:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env   # 编辑 .env 填入邮件等敏感配置（可选）
+cp .env.example .env   # Edit .env for email and other secrets (optional)
 
-# 单次运行：从 storage/raw 扫描视频，走完整流程
+# Single run: scan storage/raw and run full pipeline
 python main.py
 
-# 可选参数
-python main.py --gate 85             # 准入门槛 85%
-python main.py --guard              # Guard 模式：持续监控 storage/raw，新视频落地即凑批送厂（Watchdog 事件驱动）
+# Optional args
+python main.py --gate 85             # Pass gate 85%
+python main.py --guard               # Guard mode: watch storage/raw and run QC when new videos land (Watchdog)
 ```
 
-首次运行会自动创建 `storage/`、`db/` 目录结构；报告副本写入 `storage/reports/`。
+First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 
-**运维脚本**：`python scripts/reset_factory.py` 清理测试目录（默认 --dry-run）；`python scripts/export_for_labeling.py` 导出合格批次为待标注清单；`python scripts/smoke_test.py` 冒烟测试（生成测试物料 + 跑 QC + 断言）。
-
----
-
-## 2.0 之前版本特性总览
-
-当前代码已完成 **Roadmap 阶段一 (v1.x)** 与 **阶段一点五 (v1.5)**，并包含 **v1.6 地基加固** 及两项可选收尾（基础指标完整化、数据清洗与标注扩展）。v2.x 尚未开发。
-
-### 阶段一 (v1.x) — 标准化与精细化生产
-
-| 特性 | 说明 |
-|------|------|
-| **环境变量管理** | 敏感信息（邮件密码等）放入 `.env`，不写进配置与代码。 |
-| **批处理复核流水线** | 一批物料先全部做完质检与查重，再发**一封汇总邮件**，仅对「被拦」项做逐条 y/n/all/none 复核。 |
-| **多伦多时区** | 日志、邮件、DB、batch_id 统一使用 America/Toronto。 |
-| **工业级 Logging** | `logs/factory_YYYY-MM-DD.log`，格式 `[时间][级别][模块]`，记录指纹、查重、得分、厂长决策、移动路径、超时熔断等。 |
-| **物理隔离归档** | 废片 → `storage/rejected/Batch_xxx_Fails/`（`原名_得分pts.后缀`）；冗余 → `storage/redundant/`；合格 → `storage/archive/` 并写 DB。 |
-| **数据清洗与标注扩展** | 可选：`scripts/export_for_labeling.py` 扫描 `storage/archive` 生成 `storage/for_labeling/manifest_for_labeling.json`，供 Label Studio / CVAT 等导入，为 ML 标注做准备。 |
-
-### 阶段一点五 (v1.5) — 架构重构
-
-| 特性 | 说明 |
-|------|------|
-| **配置集中化** | 路径、阈值、批处理参数、邮件等全部在 `config/settings.yaml`，由 `config/config_loader.py` 加载并解析为绝对路径。 |
-| **工具类抽取** | `engines/`：quality_tools、fingerprinter、db_tools、report_tools、production_tools、notifier、file_tools；工具只返回数值/结果，不做合格与否决策。 |
-| **决策与流程分离** | 质检判断在 `core/qc_engine`，复核在 `core/reviewer`，归档在 `core/archiver`；流程编排在 `core/pipeline`。 |
-| **入口统一** | `main.py` 单次运行 / `--guard` 监控；行为与 v1.x 一致，旧脚本保留在 `legacy/`。 |
-| **基础指标收集** | 批次结束输出：文件数、总大小 (GB)、总耗时、**各阶段耗时**（Ingest / QC / Review / Archive）、**吞吐量**（GB/h、文件/h）；并写入 DB 表 `batch_metrics`，供后续监控与报表。 |
-
-### v1.6 — 地基加固
-
-| 特性 | 说明 |
-|------|------|
-| **存储与 DB 归拢** | 所有物料与报表在 `storage/`（raw、archive、rejected、redundant、test、reports、for_labeling）；数据库在 `db/factory_admin.db`；启动时 `init_storage_structure()` 自动建目录。 |
-| **报表持久化** | 每批 QC 报告与图表额外写入 `storage/reports/`（`{batch_id}_quality_report.html`、`{batch_id}_chart.png`）。 |
-| **v2.x 预埋** | DB 表 `production_history` 增加 `sync_id`；`quality_tools` 预留 Conflict 标签扩展点。 |
-
-更细的变更见根目录 **CHANGELOG.md**；Roadmap 与实现清单见 **docs/Roadmap.md**、**docs/implementation_checklist.md**。
+**Scripts**: `python scripts/reset_factory.py` — clean storage dirs (default dry-run; `--target archive/rejected/redundant/db` requires `--confirm-dangerous`; `--target db` clears MD5 history so the same videos are not treated as duplicates); `python scripts/reset_config.py` — restore `config/settings.yaml` to factory default (backs up current); `python scripts/export_for_labeling.py` — export passed batches for labeling; `python tests/smoke_test.py` — smoke test (test data + QC + assertions); `python tests/test_dual_gate_mlflow.py` — dual-gate + email + MLflow test.
 
 ---
 
-## 架构索引
+## Version overview
 
-| 层级 | 目录 | 说明 |
-|------|------|------|
-| 入口 | `main.py` | 总开关；单次 / Guard |
-| 流程 | `core/` | pipeline → ingest → qc_engine → reviewer → archiver；guard 监控 |
-| 工具 | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, file_tools, labeling_export |
-| 配置 | `config/` | settings.yaml、config_loader、logging；路径与阈值 |
-| 存储 | `storage/` | raw, archive, rejected, redundant, test, reports, for_labeling |
-| 数据库 | `db/` | factory_admin.db（production_history、batch_metrics、sync_id 预留） |
-| 文档 | `docs/` | Roadmap、架构、配置说明、实现清单 |
-| 运维 | `scripts/` | reset_factory、export_for_labeling、smoke_test |
-| 旧脚本 | `legacy/` | main_factory、factory_guard 等，兼容参考 |
+Current code covers **v1.x**, **v1.5**, **v1.6**, and **v2.x** (model + experiments). Next target: **v2.5** (data loop, pseudo-labels, training trigger).
 
-详见 **docs/architecture.md**、**docs/settings_guide.md**；根目录 **ROOT_LAYOUT.md** 为目录结构说明。
+### v1.x — Production pipeline
+
+| Feature | Description |
+|--------|-------------|
+| **Env-based secrets** | Email password etc. in `.env`, not in config or code. |
+| **Batch review** | One batch fully QC’d and deduplicated, then **one summary email**; only blocked items get y/n/all/none review. |
+| **Toronto timezone** | Logs, email, DB, batch_id use America/Toronto. |
+| **Structured logging** | `logs/factory_YYYY-MM-DD.log`; fingerprint, duplicate, scores, decisions, moves, timeouts. |
+| **Physical archive** | Rejected → `storage/rejected/Batch_xxx_Fails/` (`name_scorepts.ext`); redundant → `storage/redundant/`; passed → `storage/archive/` and DB. |
+| **Labeling export** | Optional: `scripts/export_for_labeling.py` writes `storage/for_labeling/manifest_for_labeling.json` for Label Studio / CVAT. |
+
+### v1.5 — Architecture
+
+| Feature | Description |
+|--------|-------------|
+| **Central config** | Paths, thresholds, batch params, email in `config/settings.yaml`; `config_loader` resolves to absolute paths. |
+| **Engine layer** | `engines/`: quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, file_tools; tools return values only, no pass/fail decision. |
+| **Flow vs decision** | QC in `core/qc_engine`, review in `core/reviewer`, archive in `core/archiver`; orchestration in `core/pipeline`. |
+| **Single entry** | `main.py` single run or `--guard`; legacy scripts in `legacy/`. |
+| **Batch metrics** | Per-batch: file count, size (GB), duration, stage timings (Ingest/QC/Review/Archive), throughput; stored in DB `batch_metrics`. |
+
+### v1.6 — Storage and DB
+
+| Feature | Description |
+|--------|-------------|
+| **Unified storage** | All data under `storage/` (raw, archive, rejected, redundant, test, reports, for_labeling); DB in `db/factory_admin.db`; `init_storage_structure()` on startup. |
+| **Report archive** | QC report and chart copied to `storage/reports/` (`{batch_id}_quality_report.html`, `{batch_id}_chart.png`). |
+
+### v2.x — Model and experiments (current)
+
+| Feature | Description |
+|--------|-------------|
+| **Vision (YOLO)** | Optional AI scan in QC; config-driven (model path, sample interval, inference params); thumbnails for vision report. |
+| **Dual gate** | Configurable high/low thresholds: auto-pass, auto-reject, middle band for human review. |
+| **Version mapping** | Algorithm and vision model version in logs and reports; `version_info.json` per batch. |
+| **MLflow** | Optional batch-level runs: params, metrics, artifacts (industrial report, vision report). |
+| **Industrial report** | Per-batch HTML: pass/review/reject/duplicate counts and per-item table; attached to email and MLflow. |
+| **Vision report** | Smart-detection HTML with per-video stats and detection thumbnails; attached to email and MLflow. |
+| **Extensible QC** | Quality checks pluggable; rule-based blur/brightness/jitter plus optional model. |
+
+Details: **CHANGELOG.md**; roadmap and checklist: **docs/Roadmap.md**, **docs/implementation_checklist.md**.
 
 ---
 
-## 项目定位与后续
+## Architecture index
 
-- **v1.x / v1.5 / v1.6**：集中质检 + 复核 + 物理归档 + 指标落库 + 标注导出扩展；2.0 之前规划项已全部完成。
-- **v2.x**：视觉感知（YOLO 等）、MLflow、双门槛准入、不合格检测可扩展等；见 **docs/Roadmap.md**。
+| Layer | Path | Description |
+|-------|------|-------------|
+| Entry | `main.py` | Single run or Guard |
+| Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver |
+| Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, report_tools |
+| Config | `config/` | settings.yaml, config_loader; paths and thresholds |
+| Storage | `storage/` | raw, archive, rejected, redundant, test, reports, for_labeling |
+| DB | `db/` | factory_admin.db (production_history, batch_metrics) |
+| Docs | `docs/` | Roadmap, architecture, settings, checklist |
+| Scripts | `scripts/` | reset_factory, reset_config, export_for_labeling |
+| Tests | `tests/` | smoke_test, test_dual_gate_mlflow |
+| Legacy | `legacy/` | Old entry scripts, kept for reference |
 
-变更记录见 **CHANGELOG.md**。
+See **docs/architecture.md**, **docs/settings_guide.md**; **ROOT_LAYOUT.md** for directory layout.
+
+---
+
+## Roadmap (short)
+
+- **v1 / v1.5 / v1.6**: Done. QC, review, archive, metrics, labeling export.
+- **v2.x**: Done. Vision, dual gate, MLflow, industrial + vision reports, email attachments.
+- **v2.5** (next): Data loop — to-be-labeled pool, pseudo-labels, training trigger.
+- **v3.x**: Concurrency, multimodal, cloud/edge (Docker, Prometheus, LiDAR).
+- **v4.x**: Deep lineage (transform log, data lineage graph).
+
+See **docs/Roadmap.md** and **docs/v2_kickoff.md**.

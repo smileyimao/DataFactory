@@ -25,3 +25,11 @@ __pycache__/
 
 # 日志目录（按日滚动，不提交）
 logs/
+
+# 测试产出（工业报表预览等，本地查看用）
+tests/output/
+
+# MLflow 与模型文件（本地运行生成，不提交）
+mlruns/
+mlflow.db
+yolov8n.pt

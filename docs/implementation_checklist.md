@@ -9,22 +9,14 @@
 
 | 文件/目录 | 作用 | 对应 Roadmap |
 |-----------|------|--------------|
-| `main_factory.py` | 主流程（批处理、一封邮件、复核、归档）、邮件发送、路径配置 | v1 流程 ✓；结构属 v1.5 待重构 |
-| `factory_guard.py` | 监控 raw_video、8s 凑批、开机扫描、调用 run_smart_factory | v1 Ingest/触发 ✓；结构属 v1.5 待重构 |
-| `core_engine.py` | 质检传感器（blur/brightness/jitter）、试制/量产、报告生成 | v1 QC 工具 ✓；工具+决策未分离 |
-| `db_manager.py` | MD5 指纹、查重、production_history 记录 | v1 重复检测 ✓；属工具类 |
-| `log_setup.py` | 多伦多时区日志、logs/factory_[日期].log | v1 Logging ✓ |
-| `factory_config.yaml` | 质检阈值、生产参数、邮件配置 | v1 配置 ✓；未集中到 config/ |
-| `.env` / `.env.example` | 敏感信息（EMAIL_PASSWORD） | v1 环境变量 ✓ |
-| `data_warehouse/` | Batch_xxx / 0_Source_Video, 1_Pilot_Room, 2_Mass_Production | v1 合格品归档 ✓；含试制环节 |
-| `rejected_material/` | Batch_xxx_Fails，废片 `原名_得分pts` | v1 废片库 ✓ |
-| `redundant_archives/` | 重复物料 | v1 冗余库 ✓ |
-| `logs/` | 按日日志文件 | v1 ✓ |
-| `config/` | settings.yaml、config_loader.py，路径/阈值/ingest/email | v1.5 ✓ |
+| `main.py` | 总开关：单次运行 / `--guard` 持续监控 | v1.5 ✓ |
 | `core/` | ingest, qc_engine, reviewer, archiver, pipeline, guard | v1.5 ✓ |
 | `engines/` | quality_tools, fingerprinter, db_tools, notifier, file_tools, report_tools, production_tools | v1.5 ✓ |
-| `main.py` | 总开关：`python main.py` 单次运行，`python main.py --guard` 监控模式 | v1.5 ✓ |
-| `main_factory.py` / `factory_guard.py` | 旧入口，保留兼容；推荐使用 main.py | v1 兼容 |
+| `config/` | settings.yaml、config_loader、startup（自检/滚动清零/黄金库） | v1.5 ✓ |
+| `storage/` | raw, archive, rejected, redundant, reports, for_labeling | v1.6 ✓ |
+| `db/` | factory_admin.db（production_history、batch_metrics、sync_id 预留） | v1.6 ✓ |
+| `.env` / `.env.example` | 敏感信息（EMAIL_PASSWORD 等） | v1 ✓ |
+| `legacy/` | main_factory、factory_guard 等旧入口，兼容参考 | v1 兼容 |
 
 ---
 
@@ -62,15 +54,15 @@
 
 | # | Roadmap 项 | 状态 | 说明 |
 |---|------------|------|------|
-| 13 | 计算机视觉质检接入（YOLO、单例、智能抽检） | ❌ 未做 | 依赖 v1.5 后 engines/vision_detector.py |
-| 14 | 为 Edge Deployment 做准备（轻量化、配置可下发） | ❌ 未做 | 与 13 一起设计时预留 |
-| 15 | 版本映射 (Version Mapping) | ❌ 未做 | 日志/元数据记录算法版本 |
-| 16 | “双门槛”自适应准入 | ❌ 未做 | 自动放行/拦截 + 人工审核中间态 |
-| 17 | MLflow Tracking | ❌ 未做 | 实验参数、质量指标、性能指标 |
-| 18 | 模型注册与复现 | ❌ 未做 | model registry |
-| 19 | 不合格检测可扩展（配置/插件） | ❌ 未做 | blur/brightness/jitter 基础上新增检测项 |
+| 13 | 计算机视觉质检接入（YOLO、单例、智能抽检） | ✅ 已实现 | engines/vision_detector.py，抽帧+推理，config 全参数 |
+| 14 | 为 Edge Deployment 做准备（轻量化、配置可下发） | ✅ 已实现 | vision 段预留 edge_lightweight；接口配置可下发 |
+| 15 | 版本映射 (Version Mapping) | ✅ 已实现 | version_info.json、path_info.version_mapping、日志 |
+| 16 | “双门槛”自适应准入 | ✅ 已实现 | dual_gate_high/dual_gate_low，自动放行/拦截，中间态人工复核 |
+| 17 | MLflow Tracking | ✅ 已实现 | config mlflow.enabled，批次级 params/metrics 记录 |
+| 18 | 模型注册与复现 | ❌ 未做 | model registry，与训练/评估 pipeline 打通 |
+| 19 | 不合格检测可扩展（配置/插件） | ✅ 已实现 | quality_tools.register_extra_check，decide_env 统一调度 |
 
-**v2 小结**：全部未做；建议在 v1.5 完成后按 13→14→15→16→17→18→19 或按需调整。
+**v2 小结**：13–17、19 已完成；18 模型注册留待 v2.5 或后续。**v2.0 主体已完成**，详见 **docs/v2_kickoff.md**。
 
 ---
 
@@ -106,24 +98,15 @@
 
 ## 📋 建议的逐步实现顺序
 
-### 立即可做（不依赖重构）
+### v1.5 — 已完成 ✅
+1–6 项（配置集中、工具抽取、决策分离、流程重构、main.py、基础指标）均已实现；当前推荐入口为 `main.py` / `main.py --guard`。
+
+### v2.0 开工 — 当前阶段
+- 详见 **docs/v2_kickoff.md**（分批任务、首项落地、依赖与接口）。
+- 建议顺序：**13+14**（YOLO + Edge 预留）→ **15** 版本映射 → **16** 双门槛 → **17** MLflow → **18** 模型注册；**19** 不合格检测可扩展可与 13 并行或稍后。
+
+### 立即可做（可选）
 - [ ] **v1 可选**：数据清洗与标注管道扩展（若要做 ML 准备）。
-
-### 第一步：v1.5 架构重构（建议优先）
-1. [ ] **7** 配置集中化：建 `config/`，迁入 settings.yaml + config_loader.py。  
-2. [ ] **8** 工具类抽取：建 `engines/`，拆出 quality_tools, fingerprinter, db_tools, notifier, file_tools, report_tools。  
-3. [ ] **9** 决策类分离：质检/复核/归档决策进 core 或 rules。  
-4. [ ] **10** 流程类重构：拆 main_factory、并 factory_guard，简化试制，建 core/ingest, qc_engine, reviewer, archiver。  
-5. [ ] **11** main.py 总开关，行为与现有一致。  
-6. [ ] **12** 基础指标收集：埋点、存储、批次摘要输出。
-
-### 第二步：v2 功能（在 v1.5 之上）
-7. [ ] **13+14** YOLO 接入 + Edge 预留（轻量化、配置可下发）。  
-8. [ ] **15** 版本映射。  
-9. [ ] **16** 双门槛准入。  
-10. [ ] **17** MLflow Tracking。  
-11. [ ] **18** 模型注册。  
-12. [ ] **19** 不合格检测可扩展。
 
 ### 第三步：v3 扩展
 13. [ ] **20–23** 状态机、Worker、Docker、Prometheus+Grafana。  
@@ -141,13 +124,13 @@
 | 阶段 | 已实现 | 待做 |
 |------|--------|------|
 | **v1** | 5 项（环境变量、批处理复核、时区、Logging、物理归档） | 1 项（数据清洗与标注扩展，可选） |
-| **v1.5** | 0 项 | 6 项（配置集中、工具抽取、决策分离、流程重构、main.py、基础指标） |
-| **v2** | 0 项 | 7 项 |
+| **v1.5** | 6 项（配置集中、工具抽取、决策分离、流程重构、main.py、基础指标） | 0 项 |
+| **v2** | 6 项（13–17、19） | 1 项（#18 模型注册） |
 | **v3** | 0 项 | 9 项 |
 | **v4** | 0 项 | 3 项（2 项核心 + 1 项可选） |
 
-**合计**：已实现 **11** 项（v1 共 5 + v1.5 共 6）；待做 **20** 项（v1 可选 1 + v2 共 7 + v3 共 9 + v4 共 3）。
+**合计**：已实现 **17** 项（v1 共 5 + v1.5 共 6 + v2 共 6）；待做 **14** 项（v1 可选 1 + v2 共 1 + v3 共 9 + v4 共 3）。
 
 ---
 
-*清单版本：v2026.02 | 与 Roadmap.md 同步*
+*清单版本：v2026.02 | v2.0 开工 | 与 Roadmap.md 同步*

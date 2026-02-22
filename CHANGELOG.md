@@ -1,5 +1,46 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
+## [v2.0] - 2026-02-20
+### 📝 版本概览
+在 v1.5 架构之上引入**视觉感知与自动化准入**：YOLO 单例抽帧推理、版本映射、双门槛（自动放行/拦截 + 人工复核中间态）、MLflow 批次级记录、不合格检测可扩展接口。程序与配置保持向后兼容，未开启 vision/mlflow/双门槛时行为与 v1.6 一致。
+
+### 🚀 相对 v1.5 的升级点
+
+#### 1. 计算机视觉质检 (#13 + #14)
+* **engines/vision_detector.py**：YOLO 单例加载，从 config `vision` 段读 `model_path`；按 `sample_seconds` 抽帧、`model.predict` 推理，仅返回检测结果，不决策。
+* **推理参数全配置化**：conf、iou、classes、device、max_det、imgsz、half、verbose 等全部从 `config/settings.yaml` 的 `vision` 段读取，无硬编码；默认值在 config_loader 中填入。
+* **core/qc_engine**：规则质检后调用 `vision_detector.run_vision_scan(cfg, 归档路径列表)`，视觉结果汇总日志；传入路径为归档后的 `archive_path`，保证文件可读。
+* **Edge 预留**：vision 段预留 `edge_lightweight` 等，便于 v3 配置下发与轻量化。
+
+#### 2. 版本映射 (#15)
+* **config**：新增 `version_mapping.algorithm_version`、`vision_model_version`；未配置时由 config_loader 填默认值。
+* **运行时**：每批 QC 结束后写入 `Batch_xxx/1_QC/version_info.json`，并写入 `path_info["version_mapping"]`；日志输出「版本映射: algorithm_version=... vision_model_version=...」。
+* **vision_detector.get_vision_model_version(cfg)**：返回当前生效的视觉模型版本（已加载路径或 config 值），供版本映射使用。
+
+#### 3. 双门槛自适应准入 (#16)
+* **config**：`production_setting` 新增 `dual_gate_high`、`dual_gate_low`（均为可选，默认 null 表示单门槛）。
+* **逻辑**：若两者均配置则启用双门槛：score ≥ high → 自动放行（qualified）；score < low → 自动拦截（auto_reject，直接进废片）；low ≤ score < high 或重复 → 人工复核（blocked）。
+* **qc_engine**：返回值由 4 个改为 5 个：`(qc_archive, qualified, blocked, auto_reject, path_info)`；pipeline 将 `auto_reject` 与 review 产生的 to_reject 合并后归档。
+* **startup / smoke_test**：已适配 run_qc 五元组返回值。
+
+#### 4. MLflow 批次级记录 (#17)
+* **config**：新增 `mlflow` 段：`enabled`、`experiment_name`、`tracking_uri`；默认关闭，不影响现有流程。
+* **core/pipeline._maybe_log_mlflow()**：批次结束后若 `mlflow.enabled` 为 true，则记录当前 run 的 params（batch_id、algorithm_version、vision_model_version、gate）与 metrics（file_count、size_gb、elapsed_sec、throughput_gb_per_h、各阶段耗时）；记录失败仅打 warning，不中断流水线。
+* **requirements.txt**：新增 `mlflow>=2.0`（v2.0 新增依赖）。
+
+#### 5. 不合格检测可扩展 (#19)
+* **engines/quality_tools**：新增 `_EXTRA_CHECK_REGISTRY` 与 `register_extra_check(fn)`；`decide_env()` 在现有规则判断后依次调用注册的 `fn(raw, cfg)`，若返回非空字符串则覆盖 env。便于后续接入黑帧、分辨率异常、YOLO 输出等，由 qc_engine 统一调度。
+
+#### 6. 配置与依赖
+* **settings.yaml**：新增/扩展 `vision`（enabled、model_path、sample_seconds、推理参数）、`version_mapping`、`mlflow`、`production_setting.dual_gate_high/dual_gate_low`。
+* **config_loader**：对上述段做 setdefault，保证缺省时也有合理默认；`_default_config()` 中同步默认值。
+* **依赖**：ultralytics>=8.0（YOLO）、mlflow>=2.0（可选，仅 mlflow.enabled 时生效）。
+
+### 📌 未在本版完成的 v2 项
+* **#18 模型注册与复现**：model registry 与训练/评估 pipeline 打通，留待 v2.5 或后续。
+
+---
+
 ## [v1.6] - 2026-02-20
 ### 📝 版本概览
 地基加固：存储与 DB 归拢到 `storage/`、`db/`，报表持久化到 `storage/reports/`，为 v2.x 预埋 sync_id 与 Conflict 扩展点，启动时自建目录并初始化 DB。

@@ -5,9 +5,22 @@ import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_file(msg: MIMEMultipart, path: str) -> None:
+    """将单个文件加入邮件为附件。"""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        with open(path, "rb") as f:
+            part = MIMEApplication(f.read(), Name=os.path.basename(path))
+            part["Content-Disposition"] = f'attachment; filename="{os.path.basename(path)}"'
+            msg.attach(part)
+    except Exception as e:
+        logger.warning("附件处理失败: %s", e)
 
 
 def send_mail(
@@ -15,11 +28,13 @@ def send_mail(
     subject: str,
     body: str,
     report_path: Optional[str] = None,
+    extra_attachments: Optional[List[str]] = None,
     password_env_key: str = "EMAIL_PASSWORD",
 ) -> bool:
     """
     发送邮件。email_cfg 需含 smtp_server, smtp_port(可选), sender, receiver。
     密码从 os.environ[password_env_key] 读取；未配置则跳过并返回 False。
+    report_path 与 extra_attachments 中的路径会作为附件一并发送。
     """
     if not email_cfg:
         return False
@@ -31,14 +46,10 @@ def send_mail(
     msg["To"] = email_cfg.get("receiver", "")
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
-    if report_path and os.path.exists(report_path):
-        try:
-            with open(report_path, "rb") as f:
-                part = MIMEApplication(f.read(), Name=os.path.basename(report_path))
-                part["Content-Disposition"] = f'attachment; filename="{os.path.basename(report_path)}"'
-                msg.attach(part)
-        except Exception as e:
-            logger.warning("附件处理失败: %s", e)
+    if report_path:
+        _attach_file(msg, report_path)
+    for path in extra_attachments or []:
+        _attach_file(msg, path)
     try:
         port = int(email_cfg.get("smtp_port", 587))
         server = smtplib.SMTP(email_cfg.get("smtp_server", ""), port)

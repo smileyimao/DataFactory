@@ -37,7 +37,7 @@ def run_production(
         fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
         prev_gray = None
         limit = fps * limit_seconds if limit_seconds else int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        pbar = tqdm(total=limit, desc=f"加工: {v_name[:15]}")
+        pbar = tqdm(total=limit, desc=f"加工: {v_name[:32]}")
         f_idx = 0
         while cap.isOpened() and f_idx < limit:
             ret, frame = cap.read()

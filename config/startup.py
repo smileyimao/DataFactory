@@ -103,7 +103,7 @@ def run_golden_run(cfg: Dict[str, Any]) -> bool:
             from engines import db_tools
             from core import qc_engine
             db_tools.init_db(temp_db)
-            qc_archive, _, _, _ = qc_engine.run_qc(run_cfg, [dest])
+            qc_archive, _, _, _, _ = qc_engine.run_qc(run_cfg, [dest])
             if not qc_archive:
                 logger.error("黄金库自检失败: QC 未返回任何结果")
                 return False
