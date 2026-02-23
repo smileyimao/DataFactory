@@ -1,5 +1,67 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
+## [v2.6] - 2026-02-23
+### 📝 版本概览
+**Smart Ingest / 高效筛查**：在 Ingest 前增加四板斧（I-帧、运动唤醒、级联检测），减少无效解码与 YOLO 推理量。主流程 Ingest → QC → Review → Archive 不变，仅优化「解码 + 检测」阶段的算力与带宽消耗。
+
+### 🚀 新增 / 变更
+
+#### 1. I-帧抽取 (engines/frame_io.py)
+* **get_i_frame_timestamps()**：用 ffprobe 获取 I-帧时间戳，只读取这些帧，减少解码量。
+* **sample_i_frames()**：按 sample_seconds 间隔筛选 I-帧，支持 max_duration_seconds；ffprobe 不可用时回退到按秒抽帧。
+* **配置**：`vision.use_i_frame_only=true` 启用；production_tools 与 vision_detector 均支持。
+
+#### 2. 运动唤醒 (engines/motion_filter.py)
+* **compute_motion_score()**：帧差 / 光流计算运动量，返回 [0,255] 标量。
+* **should_run_detection()**：运动量低于阈值时返回 False，跳过 YOLO。
+* **配置**：`vision.motion_threshold`（0=关闭）；在 vision_detector 抽帧循环内调用。
+
+#### 3. 级联检测 (vision_detector)
+* **get_cascade_model()**：加载轻量模型，用于初筛；与主模型相同时自动关闭。
+* **_cascade_has_detection()**：轻量模型有检测再跑主 YOLO，空画面被过滤。
+* **配置**：`vision.cascade_light_model_path`、`vision.cascade_light_conf`。
+
+#### 4. 配置与文档
+* **settings.yaml**：vision 段新增 use_i_frame_only、motion_threshold、cascade_light_model_path、cascade_light_conf。
+* **docs/Roadmap.md**：四板斧标记为已实现（3/4）；Embedding/Re-ID 待做。
+* **docs/smart_slicing.md**：更新四板斧说明。
+
+---
+
+## [v2.5] - 2026-02-23
+### 📝 版本概览
+**数据闭环与持续学习**：3_待人工精简、待标池自动更新、新旧模型对比、厂长中控台 Web 复核、标注回传与伪标签一致性校验。形成「待标 → 回传 → 校验 → 并入训练」的闭环。
+
+### 🚀 新增 / 变更
+
+#### 1. 3_待人工精简
+* **production_setting.human_review_flat=true**：Normal/Warning 合并，只保留 manifest.json + 图片 + txt，便于 for_labeling 直接导入。
+* **production_tools**：新增 `use_flat_output` 参数；archiver 对 to_human 传入时启用。
+* **labeling_export**：list_batch_media 用 os.walk 支持平铺与 Normal/Warning 两种结构。
+
+#### 2. 待标池自动更新
+* **labeling_export.auto_update_after_batch()**：每批归档后自动将本批 3_待人工 追加到 for_labeling，合并 manifest。
+* **配置**：`labeling_pool.auto_update_after_batch=true`；pipeline 调用。
+
+#### 3. 新旧模型对比
+* **scripts/compare_models.py**：--new、--baseline、--data；在相同数据上跑两模型，比较检测数量、一致率（IoU 匹配），写入 MLflow 与 DB 表 model_comparison。
+
+#### 4. 厂长中控台
+* **dashboard/app.py**：FastAPI，/api/pending、单项/批量 approve/reject、/thumbs。
+* **core/pending_queue.py**：队列、缩略图、复核决策调用 archiver。
+* **review.mode=dashboard**：blocked 入队，无 600s 超时丢料；轮询兜底、产线期间新视频入队后自动再扫。
+
+#### 5. 标注回传与伪标签校验
+* **engines/labeled_return.py**：回传接收（目录/压缩包）、伪标签对比（IoU 0.5 贪婪匹配）、一致率门槛报警、达标并入 training。
+* **scripts/import_labeled_return.py**：--dir/--zip、--no-merge、--dry-run。
+* **配置**：`labeled_return.consistency_threshold`、`alert_via_email`；paths 新增 labeled_return、training。
+
+#### 6. 配置与依赖
+* **settings.yaml**：human_review_flat、labeling_pool、labeled_return 段。
+* **config_loader**：对上述段做 setdefault。
+
+---
+
 ## [v2.0] - 2026-02-20
 ### 📝 版本概览
 在 v1.5 架构之上引入**视觉感知与自动化准入**：YOLO 单例抽帧推理、版本映射、双门槛（自动放行/拦截 + 人工复核中间态）、MLflow 批次级记录、不合格检测可扩展接口。程序与配置保持向后兼容，未开启 vision/mlflow/双门槛时行为与 v1.6 一致。
