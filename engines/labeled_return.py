@@ -1,0 +1,365 @@
+# engines/labeled_return.py — 标注回传接收、伪标签对比、门槛报警、训练集并入
+"""
+标注团队回传 → 落盘 labeled_return → 与伪标签对比 → 低于门槛报警 → 达标并入 training。
+"""
+import json
+import os
+import shutil
+import zipfile
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp"}
+YOLO_LINE_LEN = 5  # class_id x_center y_center w h
+
+
+def _toronto_now() -> str:
+    return datetime.now(ZoneInfo("America/Toronto")).strftime("%Y%m%d_%H%M%S")
+
+
+def parse_yolo_txt(txt_path: str) -> List[Tuple[int, float, float, float, float]]:
+    """解析 YOLO .txt，返回 [(class_id, x_center, y_center, w, h), ...]，归一化坐标。"""
+    out = []
+    if not os.path.isfile(txt_path):
+        return out
+    with open(txt_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) < YOLO_LINE_LEN:
+                continue
+            try:
+                cid = int(parts[0])
+                x, y, w, h = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+                out.append((cid, x, y, w, h))
+            except (ValueError, IndexError):
+                continue
+    return out
+
+
+def _box_iou_norm(
+    a: Tuple[int, float, float, float, float],
+    b: Tuple[int, float, float, float, float],
+) -> float:
+    """归一化坐标下两框 IoU，class 不同返回 0。"""
+    cid_a, xa, ya, wa, ha = a
+    cid_b, xb, yb, wb, hb = b
+    if cid_a != cid_b:
+        return 0.0
+    x1 = max(xa - wa / 2, xb - wb / 2)
+    y1 = max(ya - ha / 2, yb - hb / 2)
+    x2 = min(xa + wa / 2, xb + wb / 2)
+    y2 = min(ya + ha / 2, yb + hb / 2)
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    inter = (x2 - x1) * (y2 - y1)
+    area_a = wa * ha
+    area_b = wb * hb
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _match_pairs(
+    returned: List[Tuple[int, float, float, float, float]],
+    pseudo: List[Tuple[int, float, float, float, float]],
+    iou_thresh: float = 0.5,
+) -> int:
+    """贪心匹配：按 IoU 配对，返回匹配对数。"""
+    used_pseudo = [False] * len(pseudo)
+    matched = 0
+    for ra in returned:
+        best_iou, best_j = 0.0, -1
+        for j, pb in enumerate(pseudo):
+            if used_pseudo[j]:
+                continue
+            iou = _box_iou_norm(ra, pb)
+            if iou >= iou_thresh and iou > best_iou:
+                best_iou, best_j = iou, j
+        if best_j >= 0:
+            used_pseudo[best_j] = True
+            matched += 1
+    return matched
+
+
+def compare_one_image(
+    returned_boxes: List[Tuple[int, float, float, float, float]],
+    pseudo_boxes: List[Tuple[int, float, float, float, float]],
+    iou_thresh: float = 0.5,
+) -> Tuple[int, int, int]:
+    """返回 (匹配数, 回传框数, 伪标签框数)。一致率可用 2*matched/(n_returned+n_pseudo)。"""
+    matched = _match_pairs(returned_boxes, pseudo_boxes, iou_thresh)
+    return matched, len(returned_boxes), len(pseudo_boxes)
+
+
+def load_export_manifest(for_labeling_dir: str) -> Dict[str, Dict[str, Any]]:
+    """
+    读取 manifest_for_labeling.json，建立 export_filename -> 条目的映射。
+    export_filename 即 for_labeling/images 下的文件名（batch_id_xxx.jpg）。
+    """
+    manifest_path = os.path.join(for_labeling_dir, "manifest_for_labeling.json")
+    if not os.path.isfile(manifest_path):
+        return {}
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        items = json.load(f)
+    # 导出时命名规则: batch_id_filename
+    out = {}
+    for it in items:
+        batch_id = it.get("batch_id", "")
+        filename = it.get("filename", "")
+        if not batch_id or not filename:
+            continue
+        export_name = f"{batch_id}_{filename}"
+        out[export_name] = it
+        base, ext = os.path.splitext(filename)
+        out[f"{batch_id}_{base}.txt"] = it  # txt 用同一 source 路径推算
+    return out
+
+
+def get_pseudo_txt_path(manifest_entry: Dict[str, Any]) -> str:
+    """由 manifest 条目的 path（archive 内图片路径）得到对应伪标签 .txt 路径。"""
+    path = manifest_entry.get("path", "")
+    if not path:
+        return ""
+    base, _ = os.path.splitext(path)
+    return base + ".txt"
+
+
+def import_from_directory(
+    source_dir: str,
+    base_dir: str,
+    return_dir: str,
+) -> Tuple[str, List[str]]:
+    """
+    将 source_dir 内图片+同名 .txt 拷贝到 return_dir/Import_YYYYMMDD_HHMMSS/。
+    返回 (import_id, 拷贝的 export 文件名列表)。
+    """
+    import_id = "Import_" + _toronto_now()
+    dest = os.path.join(return_dir, import_id)
+    os.makedirs(dest, exist_ok=True)
+    copied = []
+    for name in sorted(os.listdir(source_dir)):
+        ext = os.path.splitext(name)[1].lower()
+        if ext in IMAGE_EXT:
+            src_path = os.path.join(source_dir, name)
+            if not os.path.isfile(src_path):
+                continue
+            shutil.copy2(src_path, os.path.join(dest, name))
+            copied.append(name)
+            base, _ = os.path.splitext(name)
+            txt_name = base + ".txt"
+            txt_src = os.path.join(source_dir, txt_name)
+            if os.path.isfile(txt_src):
+                shutil.copy2(txt_src, os.path.join(dest, txt_name))
+    logger.info("回传导入: %s, 共 %d 个媒体文件", import_id, len(copied))
+    return import_id, copied
+
+
+def import_from_zip(
+    zip_path: str,
+    base_dir: str,
+    return_dir: str,
+) -> Tuple[str, List[str]]:
+    """解压到临时目录后调用 import_from_directory。"""
+    import_id = "Import_" + _toronto_now()
+    dest = os.path.join(return_dir, import_id)
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(dest)
+    copied = []
+    for name in sorted(os.listdir(dest)):
+        ext = os.path.splitext(name)[1].lower()
+        if ext in IMAGE_EXT:
+            copied.append(name)
+    logger.info("回传导入(zip): %s, 共 %d 个媒体文件", import_id, len(copied))
+    return import_id, copied
+
+
+def run_comparison(
+    import_dir: str,
+    manifest_map: Dict[str, Dict[str, Any]],
+    archive_base: str,
+    base_dir: str = "",
+    iou_thresh: float = 0.5,
+) -> Tuple[float, List[Dict[str, Any]]]:
+    """
+    对 import_dir 内每张图，找到对应伪标签，比较框一致率。
+    返回 (整体一致率, 每图差异明细 diff_report)。
+    一致率 = 2 * 总匹配数 / (总回传框数 + 总伪标签框数)，无框时该图算 1.0。
+    """
+    total_matched = 0
+    total_returned = 0
+    total_pseudo = 0
+    diff_report = []
+    for name in sorted(os.listdir(import_dir)):
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in IMAGE_EXT:
+            continue
+        base, _ = os.path.splitext(name)
+        txt_name = base + ".txt"
+        returned_txt = os.path.join(import_dir, txt_name)
+        entry = manifest_map.get(name) or manifest_map.get(txt_name)
+        if not entry:
+            diff_report.append({"file": name, "error": "manifest 中无对应项"})
+            continue
+        pseudo_txt = get_pseudo_txt_path(entry)
+        if not pseudo_txt:
+            diff_report.append({"file": name, "error": "无法推算伪标签路径"})
+            continue
+        # manifest 的 path 为 export 时的源路径（绝对或相对），伪标签为同目录同名 .txt
+        if not os.path.isfile(pseudo_txt):
+            if not os.path.isabs(pseudo_txt):
+                for root in (base_dir, archive_base):
+                    if root:
+                        candidate = os.path.normpath(os.path.join(root, pseudo_txt))
+                        if os.path.isfile(candidate):
+                            pseudo_txt = candidate
+                            break
+        if not os.path.isfile(pseudo_txt):
+            diff_report.append({"file": name, "error": "伪标签文件不存在"})
+            continue
+        ret_boxes = parse_yolo_txt(returned_txt)
+        pse_boxes = parse_yolo_txt(pseudo_txt)
+        matched, nr, np = compare_one_image(ret_boxes, pse_boxes, iou_thresh)
+        total_matched += matched
+        total_returned += nr
+        total_pseudo += np
+        if nr + np > 0:
+            rate = 2.0 * matched / (nr + np)
+            if rate < 1.0:
+                diff_report.append({"file": name, "returned": nr, "pseudo": np, "matched": matched, "rate": round(rate, 4)})
+    if total_returned + total_pseudo == 0:
+        consistency_rate = 1.0
+    else:
+        consistency_rate = 2.0 * total_matched / (total_returned + total_pseudo)
+    return consistency_rate, diff_report
+
+
+def send_alert(
+    cfg: dict,
+    import_id: str,
+    consistency_rate: float,
+    threshold: float,
+    diff_report: List[Dict[str, Any]],
+) -> None:
+    """一致率低于门槛时发邮件（使用 email_setting）。"""
+    from . import notifier
+    email_cfg = cfg.get("email_setting", {})
+    if not email_cfg or not cfg.get("labeled_return", {}).get("alert_via_email", True):
+        return
+    subject = f"【标注回传报警】一致率 {consistency_rate:.2%} 低于 {threshold:.0%} - {import_id}"
+    body = (
+        f"厂长您好，\n\n"
+        f"标注回传批次 {import_id} 与伪标签对比一致率为 {consistency_rate:.2%}，低于设定门槛 {threshold:.0%}。\n"
+        f"请对差异部分再次复核。\n\n"
+        f"差异明细（前 20 条）：\n"
+    )
+    for i, row in enumerate(diff_report[:20]):
+        body += f"  - {row.get('file', '')}: {row}\n"
+    if len(diff_report) > 20:
+        body += f"  ... 共 {len(diff_report)} 条\n"
+    body += "\n本邮件由 DataFactory 自动生成。"
+    try:
+        notifier.send_mail(email_cfg, subject, body)
+        logger.info("已发送标注回传报警邮件")
+    except Exception as e:
+        logger.warning("发送报警邮件失败: %s", e)
+
+
+def merge_to_training(
+    import_dir: str,
+    training_dir: str,
+    import_id: str,
+) -> int:
+    """将 import_dir 内图片+txt 并入 training_dir/import_id/，返回文件数。"""
+    dest = os.path.join(training_dir, import_id)
+    os.makedirs(dest, exist_ok=True)
+    count = 0
+    for name in sorted(os.listdir(import_dir)):
+        path = os.path.join(import_dir, name)
+        if not os.path.isfile(path):
+            continue
+        ext = os.path.splitext(name)[1].lower()
+        if ext in IMAGE_EXT or ext == ".txt":
+            shutil.copy2(path, os.path.join(dest, name))
+            count += 1
+    logger.info("训练集并入: %s -> %s, %d 个文件", import_id, dest, count)
+    return count
+
+
+def run_full_pipeline(
+    cfg: dict,
+    source_dir: Optional[str] = None,
+    zip_path: Optional[str] = None,
+    dry_run: bool = False,
+    skip_merge: bool = False,
+) -> Dict[str, Any]:
+    """
+    回传接收 → 对比 → 报警（若低于门槛）→ 达标则并入训练集。
+    source_dir 或 zip_path 二选一。返回摘要。
+    """
+    from config import config_loader
+    base_dir = config_loader.get_base_dir()
+    paths = cfg.get("paths", {})
+    return_dir = paths.get("labeled_return", "")
+    training_dir = paths.get("training", "")
+    for_labeling_dir = paths.get("labeling_export", "")
+    lr_cfg = cfg.get("labeled_return", {})
+    threshold = float(lr_cfg.get("consistency_threshold", 0.95))
+    archive_base = paths.get("data_warehouse", "")
+
+    if not os.path.isdir(return_dir):
+        os.makedirs(return_dir, exist_ok=True)
+
+    if zip_path and os.path.isfile(zip_path):
+        import_id, file_list = import_from_zip(zip_path, base_dir, return_dir)
+    elif source_dir and os.path.isdir(source_dir):
+        import_id, file_list = import_from_directory(source_dir, base_dir, return_dir)
+    else:
+        return {"ok": False, "error": "请指定 --dir 或 --zip"}
+
+    import_dir = os.path.join(return_dir, import_id)
+    manifest_map = load_export_manifest(for_labeling_dir)
+    if not manifest_map:
+        return {"ok": False, "error": "未找到 manifest_for_labeling.json，请先运行 export_for_labeling"}
+
+    consistency_rate, diff_report = run_comparison(
+        import_dir, manifest_map, archive_base, base_dir=base_dir, iou_thresh=0.5
+    )
+    passed = consistency_rate >= threshold
+
+    # 写差异报告到 import 目录
+    report_path = os.path.join(import_dir, "comparison_report.json")
+    if not dry_run:
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "import_id": import_id,
+                "consistency_rate": consistency_rate,
+                "threshold": threshold,
+                "passed": passed,
+                "diff_count": len(diff_report),
+                "diff_report": diff_report,
+            }, f, indent=2, ensure_ascii=False)
+
+    if not passed and not dry_run:
+        send_alert(cfg, import_id, consistency_rate, threshold, diff_report)
+
+    merged_count = 0
+    if passed and not skip_merge and not dry_run and training_dir:
+        merged_count = merge_to_training(import_dir, training_dir, import_id)
+
+    return {
+        "ok": True,
+        "import_id": import_id,
+        "consistency_rate": consistency_rate,
+        "threshold": threshold,
+        "passed": passed,
+        "diff_count": len(diff_report),
+        "merged_count": merged_count,
+        "dry_run": dry_run,
+    }

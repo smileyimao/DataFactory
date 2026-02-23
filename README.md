@@ -2,6 +2,8 @@
 
 Industrial video QC pipeline: **raw material → QC (duplicate + quality + optional AI) → human review → archive** (passed / rejected / redundant). Designed for traceability and MLOps; extensible toward v3+ edge and multimodal.
 
+**Why this matters.** LLMs scaled fast because language data is already “curated” by human use. Robotics and autonomy don’t have that: data must be collected, cleaned, and labeled at great cost, across many modalities. Human perception works because our senses are effectively **edge pipelines**—they preprocess before feeding the brain. The real bottleneck for the industry is **data quality and supply**. This pipeline aims to be one piece of that infrastructure: a reusable, edge-ready data pipe so that “robot brains” get clean, structured input instead of raw, expensive, unlabeled streams. See **docs/Roadmap.md** (愿景 / 产业视角) for the full picture.
+
 ---
 
 ## Quick start
@@ -19,18 +21,33 @@ python main.py
 
 # Optional args
 python main.py --gate 85             # Pass gate 85%
-python main.py --guard               # Guard mode: watch storage/raw and run QC when new videos land (Watchdog)
+python main.py --guard               # Guard mode: Watchdog + 轮询兜底，详见 docs/architecture.md「Guard 模式巡逻逻辑」
+
+# 厂长中控台（review.mode=dashboard 时，blocked 入队，Web 复核）
+python -m dashboard.app              # 启动中控台 http://127.0.0.1:8765
 ```
 
 First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 
-**Scripts**: `python scripts/reset_factory.py` — clean storage dirs (default dry-run; `--target archive/rejected/redundant/db` requires `--confirm-dangerous`; `--target db` clears MD5 history so the same videos are not treated as duplicates); `python scripts/reset_config.py` — restore `config/settings.yaml` to factory default (backs up current); `python scripts/export_for_labeling.py` — export passed batches for labeling; `python tests/smoke_test.py` — smoke test (test data + QC + assertions); `python tests/test_dual_gate_mlflow.py` — dual-gate + email + MLflow test.
+**Scripts**: `python scripts/reset_factory.py` — clean storage; `python scripts/export_for_labeling.py` — export to `storage/for_labeling`; `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training; `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB; `python tests/smoke_test.py` — smoke test.
+
+---
+
+## Implemented features (summary)
+
+| 阶段 | 功能 | 状态 |
+|------|------|------|
+| **v1 / v1.5 / v1.6** | QC、复核、归档、Logging、物理隔离、配置化、引擎分层 | ✅ |
+| **v2.x** | YOLO、双门槛、MLflow、按置信分层落盘、伪标签、工业/智能报告 | ✅ |
+| **v2.5** | 3_待人工精简、待标池自动更新、新旧模型对比、厂长中控台、标注回传与伪标签校验 | ✅ |
+| **v2.6** | Smart Ingest：I-帧、运动唤醒、级联检测（四板斧 3/4） | ✅ |
+| **v3** | Edge、LiDAR、多节点、特征前置+按需回传 | 设计完成，待实现 |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x**, **v1.5**, **v1.6**, and **v2.x** (model + experiments). Next target: **v2.5** (data loop, pseudo-labels, training trigger).
+Current code covers **v1.x** through **v2.6** (Smart Ingest). Next target: **v3** (edge, LiDAR, multi-node).
 
 ### v1.x — Production pipeline
 
@@ -60,7 +77,7 @@ Current code covers **v1.x**, **v1.5**, **v1.6**, and **v2.x** (model + experime
 | **Unified storage** | All data under `storage/` (raw, archive, rejected, redundant, test, reports, for_labeling); DB in `db/factory_admin.db`; `init_storage_structure()` on startup. |
 | **Report archive** | QC report and chart copied to `storage/reports/` (`{batch_id}_quality_report.html`, `{batch_id}_chart.png`). |
 
-### v2.x — Model and experiments (current)
+### v2.x — Model and experiments
 
 | Feature | Description |
 |--------|-------------|
@@ -68,11 +85,29 @@ Current code covers **v1.x**, **v1.5**, **v1.6**, and **v2.x** (model + experime
 | **Dual gate** | Configurable high/low thresholds: auto-pass, auto-reject, middle band for human review. |
 | **Version mapping** | Algorithm and vision model version in logs and reports; `version_info.json` per batch. |
 | **MLflow** | Optional batch-level runs: params, metrics, artifacts (industrial report, vision report). |
-| **Industrial report** | Per-batch HTML: pass/review/reject/duplicate counts and per-item table; attached to email and MLflow. |
-| **Vision report** | Smart-detection HTML with per-video stats and detection thumbnails; attached to email and MLflow. |
+| **Industrial / Vision report** | Per-batch HTML; attached to email and MLflow. |
 | **Extensible QC** | Quality checks pluggable; rule-based blur/brightness/jitter plus optional model. |
 
-Details: **CHANGELOG.md**; roadmap and checklist: **docs/Roadmap.md**, **docs/implementation_checklist.md**.
+### v2.5 — Data loop and efficiency
+
+| Feature | Description |
+|--------|-------------|
+| **3_待人工精简** | `human_review_flat=true`: Normal/Warning 合并，只保留 manifest+图+txt，便于 for_labeling 导入。 |
+| **待标池自动更新** | `labeling_pool.auto_update_after_batch=true`: 每批归档后自动将 3_待人工 追加到 for_labeling。 |
+| **新旧模型对比** | `scripts/compare_models.py`: 在相同数据上跑两模型，比较检测结果，写入 MLflow/DB。 |
+| **厂长中控台** | `review.mode=dashboard`: Web 复核，单项/批量放行拒绝，无超时丢料。 |
+| **标注回传与伪标签校验** | `scripts/import_labeled_return.py`: 回传 vs 伪标签 IoU 匹配，一致率门槛报警，达标并入 training。 |
+
+### v2.6 — Smart Ingest / 高效筛查（四板斧）
+
+| Feature | Description |
+|--------|-------------|
+| **I-帧** | `vision.use_i_frame_only=true`: 只解 I-帧（需 ffprobe），减少解码量；`engines/frame_io.py`。 |
+| **运动唤醒** | `vision.motion_threshold`: 帧差低于阈值不跑 YOLO，静止画面跳过；`engines/motion_filter.py`。 |
+| **级联检测** | `vision.cascade_light_model_path`: 轻量模型初筛，有东西才上主模型；空画面被过滤。 |
+| **Embedding/Re-ID** | 待做：向量库检索、“谁在哪儿”报表。 |
+
+Details: **CHANGELOG.md**; roadmap: **docs/Roadmap.md**; settings: **docs/settings_guide.md**.
 
 ---
 
@@ -82,12 +117,12 @@ Details: **CHANGELOG.md**; roadmap and checklist: **docs/Roadmap.md**, **docs/im
 |-------|------|-------------|
 | Entry | `main.py` | Single run or Guard |
 | Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver |
-| Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, report_tools |
+| Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, labeling_export, labeled_return |
 | Config | `config/` | settings.yaml, config_loader; paths and thresholds |
-| Storage | `storage/` | raw, archive, rejected, redundant, test, reports, for_labeling |
-| DB | `db/` | factory_admin.db (production_history, batch_metrics) |
-| Docs | `docs/` | Roadmap, architecture, settings, checklist |
-| Scripts | `scripts/` | reset_factory, reset_config, export_for_labeling |
+| Storage | `storage/` | raw, archive, rejected, redundant, test, reports, for_labeling, labeled_return, training |
+| DB | `db/` | factory_admin.db (production_history, batch_metrics, model_comparison) |
+| Docs | `docs/` | Roadmap, architecture, settings, smart_slicing |
+| Scripts | `scripts/` | reset_factory, export_for_labeling, import_labeled_return, compare_models |
 | Tests | `tests/` | smoke_test, test_dual_gate_mlflow |
 | Legacy | `legacy/` | Old entry scripts, kept for reference |
 
@@ -98,9 +133,39 @@ See **docs/architecture.md**, **docs/settings_guide.md**; **ROOT_LAYOUT.md** for
 ## Roadmap (short)
 
 - **v1 / v1.5 / v1.6**: Done. QC, review, archive, metrics, labeling export.
-- **v2.x**: Done. Vision, dual gate, MLflow, industrial + vision reports, email attachments.
-- **v2.5** (next): Data loop — to-be-labeled pool, pseudo-labels, training trigger.
-- **v3.x**: Concurrency, multimodal, cloud/edge (Docker, Prometheus, LiDAR).
+- **v2.x**: Done. Vision, dual gate, MLflow, industrial + vision reports.
+- **v2.5**: Done. 3_待人工精简, 待标池自动更新, 新旧模型对比, 厂长中控台, 标注回传与伪标签校验.
+- **v2.6**: Done. Smart Ingest — I-帧, 运动唤醒, 级联检测 (四板斧 3/4).
+- **v3.x**: 设计完成，待实现。Edge, LiDAR, 多节点, 特征前置+按需回传金矿.
 - **v4.x**: Deep lineage (transform log, data lineage graph).
 
-See **docs/Roadmap.md** and **docs/v2_kickoff.md**.
+See **docs/Roadmap.md**.
+
+---
+
+## Edge deployment: why it fits remote / mining sites
+
+This pipeline is designed so that **v3-style edge deployment** keeps raw data on site and only sends small outputs out. That makes it a good fit for mines and other remote sites where bandwidth is expensive and data sovereignty matters.
+
+| Benefit | What it means |
+|--------|----------------|
+| **Raw data stays on site** | Video and sensor data are processed at the edge (mine/field). Only **results** leave: batch IDs, scores, fingerprints, QC reports (JSON/HTML), and optionally **curated outputs** (e.g. key frames, bbox crops) for training. No need to ship full video streams or disks. |
+| **Cost controllable** | Transfer drops from GB to KB (metadata + reports) or to a small set of images (key frames / training samples). Cheaper and more predictable than dedicated lines or frequent physical handoffs. |
+| **Easier for the site to accept** | The site does not have to “open a data pipe” for raw access. They run the pipeline locally; only summaries and agreed outputs are sent. Responsibility and compliance stay clear. |
+| **Cheaper than sending people** | No need for routine trips to collect disks. Deploy once at the edge; sync results on a schedule or on demand. Operational and training data (curated images) remain small. |
+| **Remote model updates are small** | Pushing a new model to the edge is a single download (e.g. one `.pt` file, on the order of MB). Much smaller than raw video; hot-push or scheduled model/config updates are bandwidth-friendly. |
+
+**In short**: the mine keeps the raw data; the pipeline runs there and only “finished products” (reports, metrics, and optionally key frames / training samples) go out. That keeps cost down and makes edge deployment something sites can accept. See **docs/Roadmap.md** (v3 Edge Deployment, 多节点部署) for the full design.
+
+---
+
+## 验证清单（待逐块验证）
+
+| 模块 | 验证项 |
+|------|--------|
+| 3_待人工精简 | `human_review_flat=true` 时 3_待人工 无 Normal/Warning 子目录，for_labeling 可导入 |
+| 待标池自动更新 | 归档后 for_labeling 自动追加本批 3_待人工，manifest 合并正确 |
+| 新旧模型对比 | `compare_models.py` 跑通，MLflow/DB 有记录 |
+| I-帧 | `use_i_frame_only=true` + 有 ffprobe 时只解 I-帧；无 ffprobe 时回退按秒 |
+| 运动唤醒 | `motion_threshold>0` 时静止画面不跑 YOLO，日志有「四板斧过滤」 |
+| 级联检测 | `cascade_light_model_path` 配置时，空画面被轻量模型过滤 |

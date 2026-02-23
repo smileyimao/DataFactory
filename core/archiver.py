@@ -2,9 +2,9 @@
 import os
 import shutil
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
-from engines import db_tools, production_tools
+from engines import db_tools, production_tools, vision_detector
 from core.qc_engine import now_toronto
 
 logger = logging.getLogger(__name__)
@@ -48,20 +48,42 @@ def archive_rejected(
                 logger.exception("废片移动失败: %s -> %s", name, e)
 
 
+def _get_detections_by_video(
+    cfg: dict, video_paths: List[str],
+) -> Dict[str, Dict[int, List[Dict[str, Any]]]]:
+    """对给定视频按 1 秒间隔跑视觉检测，返回 {basename: {frame_idx: [bbox]}} 供写伪标签。"""
+    if not video_paths or not vision_detector.is_enabled(cfg):
+        return {}
+    result = vision_detector.run_vision_scan(
+        cfg, video_paths, return_detections=True, sample_seconds_override=1.0,
+    )
+    out = {}
+    for entry in result:
+        name = entry.get("name", "")
+        if name and "detections_by_frame" in entry:
+            out[name] = entry["detections_by_frame"]
+    return out
+
+
 def _run_produce_chunk(
     cfg: dict,
     items: List[Dict[str, Any]],
     target_dir: str,
     batch_id: str,
     label: str,
+    detections_by_video: Optional[Dict[str, Dict[int, List[Dict[str, Any]]]]] = None,
+    use_flat_output: bool = False,
 ) -> None:
-    """对一批 item 执行量产（抽帧+报告）并写入 production_history。"""
+    """对一批 item 执行量产（抽帧+报告）并写入 production_history；可选传入 detections_by_video 写伪标签 .txt。use_flat_output=True 时 3_待人工精简（无 Normal/Warning 子目录）。"""
     paths = cfg.get("paths", {})
     db_path = paths.get("db_file", "")
     new_video_paths = [x["archive_path"] for x in items if os.path.isfile(x.get("archive_path", ""))]
     if not new_video_paths:
         return
-    count = production_tools.run_production(new_video_paths, target_dir, batch_id, cfg, limit_seconds=None)
+    count = production_tools.run_production(
+        new_video_paths, target_dir, batch_id, cfg, limit_seconds=None, detections_by_video=detections_by_video,
+        use_flat_output=use_flat_output,
+    )
     print(f"🏆 {label}：共加工 {count} 张样图 -> {os.path.abspath(target_dir)}")
     ts = now_toronto().strftime("%Y-%m-%d %H:%M:%S")
     for x in items:
@@ -84,17 +106,25 @@ def archive_produced(
         os.makedirs(path_info.get("human_dir", ""), exist_ok=True)
         if to_fuel:
             print(f"\n🏭 [阶段 2] 高置信·燃料（共 {len(to_fuel)} 个文件）...")
+            fuel_paths = [x["archive_path"] for x in to_fuel if os.path.isfile(x.get("archive_path", ""))]
+            fuel_detections = _get_detections_by_video(cfg, fuel_paths)
             _run_produce_chunk(
                 cfg, to_fuel,
                 path_info["fuel_dir"], batch_id,
                 "高置信·燃料",
+                detections_by_video=fuel_detections,
             )
         if to_human:
             print(f"\n🏭 [阶段 2] 待人工（共 {len(to_human)} 个文件）...")
+            human_paths = [x["archive_path"] for x in to_human if os.path.isfile(x.get("archive_path", ""))]
+            human_detections = _get_detections_by_video(cfg, human_paths)
+            human_flat = cfg.get("production_setting", {}).get("human_review_flat", False)
             _run_produce_chunk(
                 cfg, to_human,
                 path_info["human_dir"], batch_id,
                 "待人工",
+                detections_by_video=human_detections,
+                use_flat_output=human_flat,
             )
         if not to_fuel and not to_human:
             print("🛑 无物料进入量产，本批次结束。")

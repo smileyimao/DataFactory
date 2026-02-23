@@ -4,16 +4,20 @@
 paths:
   raw_video: "/Users/mac/Downloads/video"
   data_warehouse: "storage/archive"
+  dashboard_port: 8765   # 厂长中控台端口
   rejected_material: "storage/rejected"
   redundant_archives: "storage/redundant"
   reports: "storage/reports"
   labeling_export: "storage/for_labeling"   # 可选：导出待标注清单目录（scripts/export_for_labeling.py）
+  labeled_return: "storage/labeled_return"   # 标注回传落盘目录（scripts/import_labeled_return.py）
+  training: "storage/training"                # 达标数据并入的训练集根目录
   golden: "storage/golden"                 # 黄金库：开机自检时真跑一遍用；边缘部署可改为挂载点如 /opt/factory/golden
   logs: "logs"
   db_file: "db/factory_admin.db"
 
 ingest:
   batch_wait_seconds: 8
+  poll_interval_seconds: 30   # 轮询兜底：每 N 秒扫 raw，Watchdog 漏检时仍能发现（0=不轮询）
   video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
   file_stable_check_interval: 1
   file_stable_min_seconds: 2
@@ -30,12 +34,15 @@ production_setting:
   qc_sample_seconds: 10   # 每视频抽检秒数，用于质量判定（重复检测+不合格检测）
   pass_rate_gate: 85.0    # 单门槛时：>= 为合格
   dual_gate_high: null   # v2 双门槛：>= 自动放行；null 则仅用 pass_rate_gate
-  dual_gate_low: null    # v2 双门槛：< 自动拦截；null 则仅用单门槛
+  dual_gate_low: null    # v2 双门槛：< 自动拦截；null 则用单门槛
   save_normal: true
   save_warning: true
+  save_only_screened: false  # true=只落盘「Warning 或 有 YOLO 检测」的帧，减少全量切片（见 docs/smart_slicing.md）
   confidence_tiered_output: true   # true=按置信分层落盘(2_高置信_燃料、3_待人工)；false=全部写 2_Mass_Production
+  human_review_flat: true   # true=3_待人工 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
 
 review:
+  mode: dashboard   # terminal=终端逐项 y/n；dashboard=入队由中控台复核
   timeout_seconds: 600
   valid_inputs: ["y", "n", "all", "none"]
 
@@ -50,6 +57,11 @@ vision:
   enabled: true
   model_path: "yolov8n.pt"            # 留空则不加载；可填 yolov8n.pt 或本地 .pt 路径
   sample_seconds: 10       # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
+  # 四板斧：高效筛查
+  use_i_frame_only: false   # true=只解 I-帧（需 ffprobe），减少解码量
+  motion_threshold: 0       # 运动唤醒：帧差低于此值不跑 YOLO，0=关闭
+  cascade_light_model_path: ""   # 级联初筛：轻量模型路径，空=关闭；有东西才上主模型
+  cascade_light_conf: 0.2   # 级联轻量模型置信度阈值
   # 推理参数（predict）：未配置时由 config_loader 填入工业默认值
   conf: 0.25                # 置信度阈值 [0,1]
   iou: 0.45                 # NMS IoU 阈值
@@ -59,7 +71,6 @@ vision:
   imgsz: 640                # 输入尺寸（边长）
   half: false               # FP16 半精度（GPU）
   verbose: false            # 是否打印推理日志
-  # edge_lightweight: false   # v3 Edge 轻量化预留
 
 # v2.0 MLflow（可选）：批次级实验与指标记录
 mlflow:
@@ -75,6 +86,15 @@ version_mapping:
 # 开机自检与滚动清零（全球/边缘部署可按存储环境覆盖）
 startup_self_check: true    # 启动时校验配置与关键目录可写，失败则退出
 startup_golden_run: false  # 为 true 时用 paths.golden 下视频真跑一遍 QC，失败则退出（edge 建议开启）
+
+# 待标池自动更新：每批归档后自动将 3_待人工 追加到 for_labeling
+labeling_pool:
+  auto_update_after_batch: true
+
+# 标注回传与伪标签一致性校验（多级净化）
+labeled_return:
+  consistency_threshold: 0.95   # 一致率低于此值报警，要求差异部分复核
+  alert_via_email: true        # 是否发邮件报警（使用 email_setting）
 
 rolling_cleanup:
   logs_retention_days: 30      # 日志保留天数，超期删除（0=不删）

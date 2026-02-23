@@ -1,5 +1,5 @@
 # engines/vision_detector.py — v2.0 视觉质检：YOLO 单例加载，抽帧推理，仅返回检测结果，不决策
-# 所有推理参数（conf、iou、classes、device 等）均从 config/settings.yaml vision 段读取，不硬编码。
+# 支持四板斧：运动唤醒、I-帧、级联检测。
 import base64
 import io
 import logging
@@ -9,10 +9,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from . import motion_filter
+from . import frame_io
+
 logger = logging.getLogger(__name__)
 
 _model: Any = None
 _model_path_loaded: Optional[str] = None
+_cascade_model: Any = None
+_cascade_path_loaded: Optional[str] = None
+_last_load_error: Optional[str] = None  # 最近一次加载失败原因，供邮件/日志展示
 
 
 def _vision_cfg(cfg: dict) -> dict:
@@ -48,7 +54,7 @@ def get_model(cfg: dict):
     YOLO 单例：从 config vision.model_path 加载，仅当 vision.enabled 且 model_path 非空时加载。
     返回模型实例或 None。
     """
-    global _model, _model_path_loaded
+    global _model, _model_path_loaded, _last_load_error
     v = _vision_cfg(cfg)
     if not v.get("enabled") or not v.get("model_path"):
         return None
@@ -61,11 +67,18 @@ def get_model(cfg: dict):
         from ultralytics import YOLO
         _model = YOLO(path)
         _model_path_loaded = path
+        _last_load_error = None
         logger.info("视觉模型已加载: %s", path)
         return _model
     except Exception as e:
+        _last_load_error = str(e)
         logger.warning("视觉模型加载失败 (model_path=%s): %s", path, e)
         return None
+
+
+def get_vision_load_error() -> str:
+    """返回最近一次视觉模型加载失败的原因，成功或未尝试则为空字符串。供邮件/运行日志展示。"""
+    return _last_load_error or ""
 
 
 def get_vision_model_version(cfg: dict) -> str:
@@ -78,16 +91,58 @@ def get_vision_model_version(cfg: dict) -> str:
     return (cfg.get("version_mapping") or {}).get("vision_model_version") or ""
 
 
+def get_cascade_model(cfg: dict):
+    """级联检测：加载轻量模型，用于初筛。若未配置或与主模型相同则返回 None。"""
+    global _cascade_model, _cascade_path_loaded
+    v = _vision_cfg(cfg)
+    path = (v.get("cascade_light_model_path") or "").strip()
+    if not path:
+        return None
+    main_path = (v.get("model_path") or "").strip()
+    if path == main_path:
+        return None
+    if path == _cascade_path_loaded and _cascade_model is not None:
+        return _cascade_model
+    try:
+        from ultralytics import YOLO
+        _cascade_model = YOLO(path)
+        _cascade_path_loaded = path
+        logger.info("级联轻量模型已加载: %s", path)
+        return _cascade_model
+    except Exception as e:
+        logger.warning("级联模型加载失败 (path=%s): %s", path, e)
+        return None
+
+
+def _cascade_has_detection(model, frame, conf_threshold: float, base_params: dict) -> bool:
+    """轻量模型是否有检测（超过阈值即返回 True）。"""
+    params = {**base_params, "conf": conf_threshold, "verbose": False}
+    try:
+        r = model.predict(frame, **params)
+        if not r:
+            return False
+        r0 = r[0]
+        if not hasattr(r0, "boxes") or r0.boxes is None:
+            return False
+        confs = r0.boxes.conf.cpu().numpy() if hasattr(r0.boxes, "conf") else []
+        return any(float(c) >= conf_threshold for c in confs)
+    except Exception:
+        return False
+
+
 def _sample_frames(
     video_path: str,
     sample_seconds: float,
+    use_i_frame_only: bool = False,
 ) -> List[Tuple[Any, int]]:
     """
     按 config vision.sample_seconds 间隔从视频抽帧。返回 [(frame_bgr, frame_idx), ...]。
-    sample_seconds 从 config 读取，此处不硬编码。
+    use_i_frame_only=True 时用 frame_io.sample_i_frames 只读 I-帧，减少解码量。
     """
     if not os.path.isfile(video_path):
         return []
+    if use_i_frame_only:
+        return frame_io.sample_i_frames(video_path, sample_seconds)
     cap = cv2.VideoCapture(video_path)
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
     step_frames = max(1, int(fps * sample_seconds))
@@ -120,61 +175,127 @@ def _frame_to_thumbnail_b64(img_bgr: np.ndarray, max_width: int = 320) -> Option
         return None
 
 
+def _boxes_to_detections(r, frame_h: int, frame_w: int, conf_threshold: float = 0.0) -> List[Dict[str, Any]]:
+    """将 YOLO 单帧 result 转为 [{class_id, x_center, y_center, w, h, conf}] 归一化坐标。"""
+    out = []
+    if not hasattr(r, "boxes") or r.boxes is None:
+        return out
+    try:
+        xyxy = r.boxes.xyxy.cpu().numpy()
+        cls = r.boxes.cls.cpu().numpy()
+        conf = r.boxes.conf.cpu().numpy()
+    except Exception:
+        return out
+    for i in range(len(cls)):
+        c = float(conf[i])
+        if c < conf_threshold:
+            continue
+        x1, y1, x2, y2 = xyxy[i]
+        xc = ((x1 + x2) / 2) / frame_w
+        yc = ((y1 + y2) / 2) / frame_h
+        w = (x2 - x1) / frame_w
+        h = (y2 - y1) / frame_h
+        out.append({
+            "class_id": int(cls[i]),
+            "x_center": xc, "y_center": yc, "w": w, "h": h,
+            "conf": c,
+        })
+    return out
+
+
 def run_vision_scan(
     cfg: dict,
     video_paths: List[str],
     max_thumbnails_per_video: int = 3,
     thumb_width: int = 320,
+    return_detections: bool = False,
+    sample_seconds_override: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """
     视觉扫描入口：若 vision.enabled 且模型加载成功，则按 sample_seconds 抽帧并做 YOLO 推理。
-    返回每视频的推理摘要（含可选缩略图 base64，供智能检测报告嵌入）。
-    调用方应传入当前可访问的视频路径（如归档后的路径）。
+    支持四板斧：use_i_frame_only（只解 I-帧）、motion_threshold（运动唤醒）、cascade_light_model_path（级联初筛）。
+    返回每视频的推理摘要；若 return_detections=True 则每视频带 detections_by_frame。
     """
     if not is_enabled(cfg):
         return []
     v = _vision_cfg(cfg)
-    sample_seconds = v.get("sample_seconds")
+    sample_seconds = sample_seconds_override if sample_seconds_override is not None else v.get("sample_seconds")
     if sample_seconds is None:
         logger.warning("vision.sample_seconds 未配置，跳过视觉推理")
         return []
+    use_i_frame = bool(v.get("use_i_frame_only", False))
+    motion_threshold = float(v.get("motion_threshold", 0.0))  # 0=关闭运动唤醒
+    cascade_model = get_cascade_model(cfg)
+    cascade_conf = float(v.get("cascade_light_conf", 0.2)) if cascade_model else 0.0
+
     model = get_model(cfg)
     if model is None:
         logger.info("AI 正在扫描...（视觉模型未加载，跳过推理）")
         return []
-    logger.info("AI 正在扫描...")
+    logger.info("AI 正在扫描... (I帧=%s 运动唤醒=%s 级联=%s)", use_i_frame, motion_threshold > 0, cascade_model is not None)
     params = get_inference_params(cfg)
+    conf_threshold = float(v.get("conf", 0.25)) if return_detections else 0.0
     per_video: List[Dict[str, Any]] = []
     for v_path in video_paths:
         if not os.path.isfile(v_path):
             logger.warning("视觉扫描跳过不存在的文件: %s", v_path)
             continue
-        frames_with_idx = _sample_frames(v_path, sample_seconds)
+        frames_with_idx = _sample_frames(v_path, sample_seconds, use_i_frame_only=use_i_frame)
         if not frames_with_idx:
-            per_video.append({
-                "path": v_path,
-                "name": os.path.basename(v_path),
-                "n_frames": 0,
-                "n_detections": 0,
-                "thumbnails": [],
-            })
+            entry = {"path": v_path, "name": os.path.basename(v_path), "n_frames": 0, "n_detections": 0, "thumbnails": []}
+            if return_detections:
+                entry["detections_by_frame"] = {}
+            per_video.append(entry)
             continue
-        frames = [f[0] for f in frames_with_idx]
+
+        # 运动唤醒 + 级联：筛选需要跑主模型的帧
+        prev_gray = None
+        frames_to_run: List[Tuple[Any, int, int]] = []  # (frame, frame_idx, orig_index)
+        for i, (frame, frame_idx) in enumerate(frames_with_idx):
+            if motion_threshold > 0:
+                run_det, _ = motion_filter.should_run_detection(
+                    prev_gray, frame, motion_threshold, method="diff"
+                )
+                if not run_det:
+                    continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+            prev_gray = gray
+            if cascade_model:
+                if not _cascade_has_detection(cascade_model, frame, cascade_conf, params):
+                    continue
+            frames_to_run.append((frame, frame_idx, i))
+
+        if not frames_to_run:
+            entry = {"path": v_path, "name": os.path.basename(v_path), "n_frames": len(frames_with_idx), "n_detections": 0, "thumbnails": []}
+            if return_detections:
+                entry["detections_by_frame"] = {}
+            per_video.append(entry)
+            logger.info("视觉扫描: %s 抽帧 %d 张，四板斧过滤后 0 张需检测", os.path.basename(v_path), len(frames_with_idx))
+            continue
+
+        frames_only = [f[0] for f in frames_to_run]
         try:
-            results = model.predict(frames, **params)
+            results = model.predict(frames_only, **params)
         except Exception as e:
             logger.warning("视觉推理异常 %s: %s", os.path.basename(v_path), e)
-            per_video.append({
-                "path": v_path,
-                "name": os.path.basename(v_path),
-                "n_frames": len(frames),
-                "error": str(e),
-                "thumbnails": [],
-            })
+            entry = {"path": v_path, "name": os.path.basename(v_path), "n_frames": len(frames_with_idx), "error": str(e), "thumbnails": []}
+            if return_detections:
+                entry["detections_by_frame"] = {}
+            per_video.append(entry)
             continue
+
         n_det = 0
         thumbnails: List[str] = []
-        for r in results:
+        detections_by_frame: Dict[int, List[Dict[str, Any]]] = {}
+        for j, r in enumerate(results):
+            if j >= len(frames_to_run):
+                break
+            _, frame_idx, _ = frames_to_run[j]
+            frame = frames_only[j]
+            frame_h, frame_w = frame.shape[:2]
+            dets = _boxes_to_detections(r, frame_h, frame_w, conf_threshold) if return_detections else []
+            if return_detections and dets:
+                detections_by_frame[frame_idx] = dets
             n_boxes = len(r.boxes) if (hasattr(r, "boxes") and r.boxes is not None) else 0
             n_det += n_boxes
             if len(thumbnails) < max_thumbnails_per_video and n_boxes > 0 and hasattr(r, "plot"):
@@ -189,12 +310,15 @@ def run_vision_scan(
                             thumbnails.append(b64)
                 except Exception:
                     pass
-        per_video.append({
+        entry = {
             "path": v_path,
             "name": os.path.basename(v_path),
-            "n_frames": len(frames),
+            "n_frames": len(frames_with_idx),
             "n_detections": n_det,
             "thumbnails": thumbnails,
-        })
-        logger.info("视觉扫描: %s 抽帧 %d 张，检测框 %d 个，缩略图 %d 张", os.path.basename(v_path), len(frames), n_det, len(thumbnails))
+        }
+        if return_detections:
+            entry["detections_by_frame"] = detections_by_frame
+        per_video.append(entry)
+        logger.info("视觉扫描: %s 抽帧 %d 张，四板斧后检测 %d 张，框 %d 个", os.path.basename(v_path), len(frames_with_idx), len(frames_to_run), n_det)
     return per_video

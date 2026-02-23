@@ -1,5 +1,5 @@
-# core/guard.py — 持续监控 storage/raw，新视频落地即凑批送厂
-# Watchdog 对 raw 目录做事件监听（创建/移入），非轮询；有新文件即触发等待稳定 + 凑批延时后送厂。
+# core/guard.py — 持续监控 raw 目录，新视频落地即凑批送厂
+# Watchdog 事件监听 + 轮询兜底（macOS 上 Finder 复制、iCloud 同步等可能漏检）。
 import os
 import time
 import threading
@@ -12,6 +12,9 @@ from engines import file_tools
 from core import pipeline
 
 logger = logging.getLogger(__name__)
+
+# 轮询兜底间隔（秒），0 表示不轮询
+POLL_INTERVAL_DEFAULT = 30
 
 
 def _list_videos(cfg: dict) -> list:
@@ -73,12 +76,15 @@ class VideoFolderHandler(FileSystemEventHandler):
         self._timer = None
         self._lock = threading.Lock()
         self._processing = False
+        self._pending_flush = False  # 产线加工期间有新视频触发 flush 时，本批结束后需再扫一次
         self._stable_interval = self._cfg.get("ingest", {}).get("file_stable_check_interval", 1)
         self._stable_min = self._cfg.get("ingest", {}).get("file_stable_min_seconds", 2)
 
     def _flush_batch(self):
         with self._lock:
             if self._processing:
+                self._pending_flush = True
+                logger.info("产线加工中，新物料已登记，本批结束后将自动再扫")
                 return
             paths = _list_videos(self._cfg)
             if not paths:
@@ -91,6 +97,12 @@ class VideoFolderHandler(FileSystemEventHandler):
         finally:
             with self._lock:
                 self._processing = False
+                need_retry = self._pending_flush
+                self._pending_flush = False
+            if need_retry:
+                print("\n📡 [保安报告] 产线加工期间有新物料写入，立即再扫 raw 目录...")
+                logger.info("产线加工期间有新物料，立即再扫 raw 目录")
+                self._flush_batch()
         print(f"\n{'=' * 50}\n🛡️  保安继续巡逻中...")
 
     def on_created(self, event):
@@ -107,8 +119,17 @@ class VideoFolderHandler(FileSystemEventHandler):
             _handle_new_file(self, dest)
 
 
+def _poll_loop(handler: "VideoFolderHandler", interval: float, stop_event: threading.Event) -> None:
+    """轮询兜底：定期扫 raw 目录，Watchdog 漏检时仍能发现新视频。"""
+    while not stop_event.wait(timeout=interval):
+        try:
+            handler._flush_batch()
+        except Exception as e:
+            logger.exception("轮询兜底异常: %s", e)
+
+
 def run_guard() -> None:
-    """初始化 DB、创建 raw 目录、执行开机扫描、启动 Watchdog 持续监控 raw（新文件创建/移入即触发）。"""
+    """初始化 DB、创建 raw 目录、执行开机扫描、启动 Watchdog + 轮询兜底。"""
     from engines import db_tools
     cfg = config_loader.load_config()
     db_path = cfg.get("paths", {}).get("db_file", "")
@@ -125,10 +146,26 @@ def run_guard() -> None:
     handler = VideoFolderHandler()
     observer.schedule(handler, watch_path, recursive=False)
     observer.start()
+
+    poll_interval = cfg.get("ingest", {}).get("poll_interval_seconds", POLL_INTERVAL_DEFAULT)
+    poll_stop = threading.Event()
+    poll_thread = None
+    if poll_interval and poll_interval > 0:
+        poll_thread = threading.Thread(
+            target=_poll_loop,
+            args=(handler, float(poll_interval), poll_stop),
+            daemon=True,
+            name="guard_poll",
+        )
+        poll_thread.start()
+        logger.info("轮询兜底已启动，间隔 %s 秒", poll_interval)
+        print(f"📡 轮询兜底: 每 {poll_interval}s 扫一次 raw（Watchdog 漏检时仍能发现）")
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
+        poll_stop.set()
         observer.stop()
         print("\n👋 保安已安全下班。")
     observer.join()

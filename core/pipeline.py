@@ -5,8 +5,8 @@ import logging
 from typing import List, Optional
 
 from config import config_loader
-from core import ingest, qc_engine, reviewer, archiver
-from engines import db_tools
+from core import ingest, qc_engine, reviewer, archiver, pending_queue
+from engines import db_tools, labeling_export
 
 logger = logging.getLogger(__name__)
 
@@ -138,9 +138,6 @@ def run_smart_factory(
             print(f"❌ 警告：未发现视频物料：{raw}")
         return
 
-    gate = cfg.get("production_setting", {}).get("pass_rate_gate", 80.0)
-    print(f"🚀 [指挥部] 准入标准 {gate}% | 重复检测 + 不合格检测")
-
     start_time = time.time()
     t_ingest = time.time()
     total_bytes = sum(os.path.getsize(p) for p in videos if os.path.isfile(p))
@@ -150,15 +147,26 @@ def run_smart_factory(
     to_fuel = list(qualified)
     to_reject = list(auto_reject)
     to_human = []
+    review_mode = cfg.get("review", {}).get("mode", "terminal")
     if blocked:
-        timeout = cfg.get("review", {}).get("timeout_seconds", 600)
-        added_produce, review_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
-        to_human = list(added_produce)
-        to_reject.extend(review_reject)
+        if review_mode == "dashboard":
+            base = config_loader.get_base_dir()
+            n = pending_queue.add_items(base, blocked, path_info)
+            if n:
+                print(f"📋 [待复核队列] 本批 {n} 项已入队，厂长可打开中控台复核: python -m dashboard.app")
+        else:
+            timeout = cfg.get("review", {}).get("timeout_seconds", 600)
+            added_produce, review_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
+            to_human = list(added_produce)
+            to_reject.extend(review_reject)
     t_review = time.time()
 
     archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
     archiver.archive_produced(cfg, to_fuel, to_human, path_info)
+    # 待标池自动更新：本批 3_待人工 追加到 for_labeling
+    updated = labeling_export.auto_update_after_batch(cfg, path_info)
+    if updated:
+        print(f"📋 [待标池] 已自动更新: {updated}")
     t_archive = time.time()
 
     _batch_summary(

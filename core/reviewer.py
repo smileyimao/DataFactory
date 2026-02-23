@@ -8,6 +8,9 @@ logger = logging.getLogger(__name__)
 
 VALID_INPUTS = frozenset({"y", "n", "all", "none"})
 
+RED = "\033[31m"
+RESET = "\033[0m"
+
 
 def ask_one(prompt: str, timeout: int = 600, valid: frozenset = VALID_INPUTS) -> str:
     """循环询问直到得到 valid 中之一或超时。超时返回 'none'。"""
@@ -47,7 +50,32 @@ def review_blocked(
             reason = f"重复 曾于批次 {item.get('duplicate_batch_id', '')} ({item.get('duplicate_created_at', '')})"
         else:
             reason = f"不合格 得分: {item['score']:.1f}% / 准入: {gate}%"
-        prompt = f"\n当前: {name} - {reason}\n  [y]放行 [n]丢弃 (y/n/all/none) [600s后默认none]: "
+        prompt = f"\n当前: {name} - {reason}\n"
+        # 规则分项：未达标项标红
+        rule_stats = item.get("rule_stats") or {}
+        if rule_stats:
+            for rule_name, info in [
+                ("brightness", "亮度"),
+                ("blur", "模糊"),
+                ("jitter", "抖动"),
+                ("contrast", "对比度"),
+            ]:
+                r = rule_stats.get(rule_name)
+                if not r:
+                    continue
+                if r.get("pass"):
+                    if rule_name == "brightness":
+                        prompt += f"  {info}: 正常 ({r.get('min', 0):.1f}~{r.get('max', 0):.1f})\n"
+                    elif rule_name == "blur":
+                        prompt += f"  {info}: 正常 (最低 {r.get('min', 0):.1f}≥{r.get('threshold', 0)})\n"
+                    elif rule_name == "jitter":
+                        prompt += f"  {info}: 正常 (最高 {r.get('max', 0):.1f}≤{r.get('threshold', 0)})\n"
+                    else:
+                        prompt += f"  {info}: 正常\n"
+                else:
+                    fail = r.get("fail_reason") or "未达标"
+                    prompt += f"  {RED}{info}: {fail}{RESET}\n"
+        prompt += "  [y]放行 [n]丢弃 (y/n/all/none) [600s后默认none]: "
         cmd = ask_one(prompt, timeout=timeout_seconds)
         if cmd == "y":
             to_produce.append(item)

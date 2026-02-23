@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>厂长中控台 - DataFactory</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --pass: #3fb950;
+      --fail: #f85149;
+      --accent: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin: 0 0 1rem;
+      color: var(--accent);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .count {
+      font-size: 1.25rem;
+      color: var(--muted);
+    }
+    .batch-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .btn-approve { background: var(--pass); color: #fff; }
+    .btn-reject { background: var(--fail); color: #fff; }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #30363d;
+    }
+    .card-thumb {
+      width: 100%;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+      background: #161b22;
+    }
+    .card-body { padding: 0.75rem 1rem; }
+    .card-title {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      word-break: break-all;
+    }
+    .card-meta {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+    .rule-stats {
+      font-size: 0.8rem;
+      margin-bottom: 0.75rem;
+    }
+    .rule-ok { color: var(--pass); }
+    .rule-fail { color: var(--fail); }
+    .card-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .card-actions .btn { flex: 1; padding: 0.4rem 0.6rem; font-size: 0.85rem; }
+    .empty {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+    }
+    .checkbox {
+      margin-right: 0.5rem;
+      cursor: pointer;
+    }
+    .refresh { margin-left: auto; }
+  </style>
+</head>
+<body>
+  <h1>🏭 厂长中控台</h1>
+  <div class="header">
+    <span class="count">待复核: <strong id="count">0</strong> 项</span>
+    <div class="batch-actions">
+      <button class="btn btn-approve" id="batchApprove" disabled>全选放行</button>
+      <button class="btn btn-reject" id="batchReject" disabled>全选拒绝</button>
+    </div>
+    <button class="btn refresh" id="refresh">🔄 刷新</button>
+  </div>
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty" style="display:none">暂无待复核项，产线运行正常。</div>
+
+  <script>
+    const API = '';
+    let items = [];
+
+    async function fetchPending() {
+      const r = await fetch(API + '/api/pending');
+      const data = await r.json();
+      items = data.items || [];
+      render();
+    }
+
+    function render() {
+      const grid = document.getElementById('grid');
+      const empty = document.getElementById('empty');
+      const countEl = document.getElementById('count');
+      countEl.textContent = items.length;
+      document.getElementById('batchApprove').disabled = items.length === 0;
+      document.getElementById('batchReject').disabled = items.length === 0;
+
+      if (items.length === 0) {
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      grid.innerHTML = items.map(item => {
+        const reason = item.is_duplicate
+          ? `重复 曾于批次 ${item.duplicate_batch_id || ''}`
+          : `不合格 得分: ${item.score?.toFixed(1) || 0}%`;
+        const rules = (item.rule_stats || {});
+        const ruleRows = [
+          ['brightness', '亮度'],
+          ['blur', '模糊'],
+          ['jitter', '抖动'],
+          ['contrast', '对比度']
+        ].map(([k, label]) => {
+          const r = rules[k];
+          if (!r) return '';
+          const ok = r.pass;
+          const text = ok ? '正常' : (r.fail_reason || '未达标');
+          return `<span class="${ok ? 'rule-ok' : 'rule-fail'}">${label}: ${text}</span> `;
+        }).filter(Boolean).join('');
+
+        const thumbUrl = item.thumbnail ? (API + '/thumbs/' + item.thumbnail.split('/').pop()) : '';
+        return `
+          <div class="card" data-id="${item.id}">
+            <img class="card-thumb" src="${thumbUrl}" alt="" onerror="this.style.background='#161b22'">
+            <div class="card-body">
+              <div class="card-title">${escapeHtml(item.filename)}</div>
+              <div class="card-meta">${reason} · ${item.batch_id || ''}</div>
+              ${ruleRows ? `<div class="rule-stats">${ruleRows}</div>` : ''}
+              <div class="card-actions">
+                <input type="checkbox" class="checkbox" data-id="${item.id}">
+                <button class="btn btn-approve" data-action="approve" data-id="${item.id}">放行</button>
+                <button class="btn btn-reject" data-action="reject" data-id="${item.id}">拒绝</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      grid.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', () => act(btn.dataset.action, [btn.dataset.id]));
+      });
+      grid.querySelectorAll('.checkbox').forEach(cb => {
+        cb.addEventListener('change', updateBatchState);
+      });
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function act(action, ids) {
+      const endpoint = ids.length === 1
+        ? `/api/pending/${ids[0]}/${action}`
+        : `/api/pending/batch/${action}`;
+      const opts = ids.length === 1
+        ? { method: 'POST' }
+        : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) };
+      const r = await fetch(API + endpoint, opts);
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert(err.detail || '操作失败');
+        return;
+      }
+      await fetchPending();
+    }
+
+    function getSelectedIds() {
+      return Array.from(document.querySelectorAll('.checkbox:checked')).map(cb => cb.dataset.id);
+    }
+
+    function updateBatchState() {
+      const n = getSelectedIds().length;
+      document.getElementById('batchApprove').textContent = n ? `放行 ${n} 项` : '全选放行';
+      document.getElementById('batchReject').textContent = n ? `拒绝 ${n} 项` : '全选拒绝';
+    }
+
+    document.getElementById('batchApprove').addEventListener('click', () => {
+      const ids = getSelectedIds();
+      if (ids.length) act('approve', ids);
+      else if (items.length) act('approve', items.map(i => i.id));
+    });
+    document.getElementById('batchReject').addEventListener('click', () => {
+      const ids = getSelectedIds();
+      if (ids.length) act('reject', ids);
+      else if (items.length) act('reject', items.map(i => i.id));
+    });
+    document.getElementById('refresh').addEventListener('click', fetchPending);
+
+    fetchPending();
+    setInterval(fetchPending, 30000);
+  </script>
+</body>
+</html>

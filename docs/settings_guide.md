@@ -14,11 +14,14 @@
 | `redundant_archives` | 重复件归档目录 | `storage/redundant` |
 | `reports` | 历史报表存档（每批 HTML/PNG 副本） | `storage/reports` |
 | `labeling_export` | 可选：待标注清单导出目录（`scripts/export_for_labeling.py`） | `storage/for_labeling` |
+| `labeled_return` | 标注回传落盘目录（`scripts/import_labeled_return.py`） | `storage/labeled_return` |
+| `training` | 达标数据并入的训练集根目录 | `storage/training` |
+| `dashboard_port` | 厂长中控台端口（`python -m dashboard.app`） | `8765` |
 | `golden` | 黄金库：开机自检时真跑 QC 用的参考视频目录；边缘部署可改为挂载点如 `/opt/factory/golden` | `storage/golden` |
 | `logs` | 日志目录 | `logs` |
 | `db_file` | 生产数据库文件路径 | `db/factory_admin.db` |
 
-说明：启动时 `init_storage_structure()` 会创建 `storage/raw`、`storage/archive`、`storage/rejected`、`storage/redundant`、`storage/test`、`storage/reports`、`storage/for_labeling`、`storage/golden` 和 `db/`，无需手动建目录。
+说明：启动时 `init_storage_structure()` 会创建 `storage/raw`、`storage/archive`、`storage/rejected`、`storage/redundant`、`storage/test`、`storage/reports`、`storage/for_labeling`、`storage/labeled_return`、`storage/training`、`storage/golden`、`storage/pending_review` 和 `db/`，无需手动建目录。
 
 ---
 
@@ -27,9 +30,12 @@
 | 键 | 说明 | 默认 |
 |----|------|------|
 | `batch_wait_seconds` | Guard 模式下，新文件落地后等待多少秒再凑批（期间新文件会重置计时） | `8` |
+| `poll_interval_seconds` | 轮询兜底间隔（秒）：定期扫 raw 目录，Watchdog 漏检时仍能发现；`0` 表示不轮询 | `30` |
 | `video_extensions` | 视为视频的文件扩展名 | `[".mp4", ".mov", ".avi", ".mkv"]` |
 | `file_stable_check_interval` | 文件稳定性检测：轮询间隔（秒） | `1` |
 | `file_stable_min_seconds` | 文件大小不变持续多少秒视为稳定 | `2` |
+
+**Guard 巡逻逻辑**（详见下方「Guard 模式巡逻逻辑」）：Watchdog 事件 + 轮询兜底双通道；产线加工期间新视频会登记，本批结束后自动再扫。
 
 ---
 
@@ -56,6 +62,12 @@
 | `pass_rate_gate` | 准入通过率门槛（%），用于整批是否达标 | `85.0` |
 | `save_normal` | 是否保存 Normal 帧样本 | `true` |
 | `save_warning` | 是否保存 Warning 帧样本 | `true` |
+| `save_only_screened` | 为 true 时只落盘「质量异常(Warning) 或 该帧有 YOLO 检测」的帧，减少全量切片 | `false` |
+| `human_review_flat` | 为 true 时 3_待人工 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入 | `true` |
+
+详见 **docs/smart_slicing.md**（YOLO 筛查与只落盘关键帧）。
+
+**四板斧（vision 段）**：`use_i_frame_only` 只解 I-帧；`motion_threshold` 运动唤醒（0=关闭）；`cascade_light_model_path` 级联轻量模型；`cascade_light_conf` 级联置信度。详见 **docs/Roadmap.md** 高效筛查技术线。
 
 命令行 `--gate 90` 可覆盖 `pass_rate_gate`。
 
@@ -65,8 +77,11 @@
 
 | 键 | 说明 | 默认 |
 |----|------|------|
-| `timeout_seconds` | 单条复核等待输入超时（秒），超时按 none 处理 | `600` |
+| `mode` | `terminal`=终端逐项 y/n；`dashboard`=入队由厂长中控台 Web 复核（无超时丢料） | `terminal` |
+| `timeout_seconds` | 单条复核等待输入超时（秒），仅 `mode=terminal` 时生效 | `600` |
 | `valid_inputs` | 合法输入 | `["y", "n", "all", "none"]` |
+
+**厂长中控台**：`review.mode=dashboard` 时，blocked 项入队 `storage/pending_review/`，厂长打开 `python -m dashboard.app` 即可 Web 复核。详见 `docs/dashboard_design.md`。
 
 ---
 
@@ -85,7 +100,26 @@
 
 ---
 
-## 7. 开机自检与滚动清零（Edge 部署稳定性）
+## 7. labeling_pool（待标池自动更新）
+
+| 键 | 说明 | 默认 |
+|----|------|------|
+| `auto_update_after_batch` | 每批归档后是否自动将 3_待人工 追加到 for_labeling | `true` |
+
+---
+
+## 8. labeled_return（标注回传与伪标签一致性）
+
+| 键 | 说明 | 默认 |
+|----|------|------|
+| `consistency_threshold` | 一致率低于此值报警，要求差异部分复核 | `0.95` |
+| `alert_via_email` | 是否发邮件报警（使用 `email_setting`） | `true` |
+
+用于 `scripts/import_labeled_return.py`：回传与伪标签对比后，低于门槛则发邮件，达标则并入 `paths.training`。
+
+---
+
+## 9. 开机自检与滚动清零（Edge 部署稳定性）
 
 | 键 | 说明 | 默认 |
 |----|------|------|
@@ -99,13 +133,13 @@
 
 ---
 
-## 8. 默认配置与无 YAML 时行为
+## 10. 默认配置与无 YAML 时行为
 
 若未找到 `config/settings.yaml`，`config_loader.load_config()` 会使用 `_default_config(base_dir)`，其路径与上述默认值一致（paths 指向 `storage/` 与 `db/`）。因此即使没有 YAML，启动也会使用合理默认值。
 
 ---
 
-## 9. 在代码中读取配置
+## 11. 在代码中读取配置
 
 - **路径**：`config_loader.get_paths(cfg)` 得到已解析为绝对路径的 `paths` 字典。
 - **质检相关**：`config_loader.get_quality_thresholds(cfg)` 得到 `quality_thresholds` 与 `production_setting` 的合并字典，供质检与报告使用。

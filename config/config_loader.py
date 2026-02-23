@@ -65,6 +65,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     v.setdefault("enabled", False)
     v.setdefault("model_path", "")
     v.setdefault("sample_seconds", 10)
+    v.setdefault("use_i_frame_only", False)
+    v.setdefault("motion_threshold", 0.0)
+    v.setdefault("cascade_light_model_path", "")
+    v.setdefault("cascade_light_conf", 0.2)
     v.setdefault("conf", 0.25)
     v.setdefault("iou", 0.45)
     v.setdefault("classes", None)
@@ -83,6 +87,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     mf.setdefault("enabled", False)
     mf.setdefault("experiment_name", "datafactory")
     mf.setdefault("tracking_uri", None)
+    data.setdefault("production_setting", {})
+    data["production_setting"].setdefault("human_review_flat", True)
+    data.setdefault("labeling_pool", {})
+    data["labeling_pool"].setdefault("auto_update_after_batch", True)
     return data
 
 
@@ -92,7 +100,7 @@ def init_storage_structure(base_dir: Optional[str] = None) -> None:
     若 base_dir 未传则使用 get_base_dir()。
     """
     base = base_dir if base_dir is not None else get_base_dir()
-    for sub in ("storage/raw", "storage/archive", "storage/rejected", "storage/redundant", "storage/test", "storage/reports", "storage/for_labeling", "storage/golden", "db"):
+    for sub in ("storage/raw", "storage/archive", "storage/rejected", "storage/redundant", "storage/test", "storage/reports", "storage/for_labeling", "storage/golden", "storage/pending_review", "storage/labeled_return", "storage/training", "db"):
         d = os.path.join(base, sub)
         os.makedirs(d, exist_ok=True)
 
@@ -108,6 +116,8 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "redundant_archives": os.path.join(base_dir, "storage", "redundant"),
             "reports": os.path.join(base_dir, "storage", "reports"),
             "labeling_export": os.path.join(base_dir, "storage", "for_labeling"),
+            "labeled_return": os.path.join(base_dir, "storage", "labeled_return"),
+            "training": os.path.join(base_dir, "storage", "training"),
             "golden": os.path.join(base_dir, "storage", "golden"),
             "logs": os.path.join(base_dir, "logs"),
             "db_file": os.path.join(base_dir, "db", "factory_admin.db"),
@@ -131,9 +141,12 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "dual_gate_low": None,
             "save_normal": True,
             "save_warning": True,
+            "save_only_screened": False,
             "confidence_tiered_output": True,
+            "human_review_flat": True,
         },
-        "review": {"timeout_seconds": 600, "valid_inputs": ["y", "n", "all", "none"]},
+        "review": {"mode": "terminal", "timeout_seconds": 600, "valid_inputs": ["y", "n", "all", "none"]},
+        "labeled_return": {"consistency_threshold": 0.95, "alert_via_email": True},
         "email_setting": {},
         "startup_self_check": True,
         "rolling_cleanup": {
