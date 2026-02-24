@@ -20,7 +20,7 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 | **主流程** | Ingest（预检 dedup + decode）→ Funnel QC（rule + vision）→ Admission（auto-pass + HITL）→ Archive |
 | **Archive 结构** | `Batch_xxx/` 下 reports、source、refinery、inspection |
 | **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
-| **下一目标** | v3：audio/vibration、FFT、predictive maintenance、Edge 部署 |
+| **下一目标** | v3：模型就绪（数据血缘、Transform Log、MLflow 追溯） |
 
 ---
 
@@ -75,13 +75,14 @@ For readers familiar with industrial / MLOps terminology, the design maps as fol
 | **v2.7** | 工业级加固：Path decoupling、P0/P1/P2/P3（重试、DB 错误处理、健康检查、时区/日志/邮件可配置、metrics、配置校验）— **Edge 部署前最关键一步** | ✅ |
 | **v2.8** | Ingest 预检：dedup + 首帧解码，失败项移入 quarantine — **流程模块化** | ✅ |
 | **v2.9** | Modality 解耦：config modality，抽象层，为 audio/vibration 预留 | ✅ |
-| **v3** | 多模态、FFT、predictive maintenance、Edge、多节点 | 设计完成，待实现 |
+| **v3** | **模型就绪**：数据血缘、Transform Log、MLflow 数据→模型追溯 | 设计完成，待实现 |
+| **v4** | 多模态、FFT、Edge、多节点、分权管理 | 设计完成，待实现 |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **v3** (audio/vibration, FFT, predictive maintenance, edge).
+Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **v3** (模型就绪：数据血缘、Transform Log、MLflow 数据→模型追溯).
 
 ### v1.x — Production pipeline
 
@@ -192,8 +193,8 @@ See **docs/architecture.md**, **docs/architecture_mindmap.md**（思维导图骨
 - **v2.7**: Done. 工业级加固 — P0/P1/P2/P3, Path decoupling, Batch 重命名 (Edge 部署前最关键一步).
 - **v2.8**: Done. Ingest 预检 — dedup + 首帧解码, quarantine, 流程模块化.
 - **v2.9**: Done. Modality 解耦 — config modality, modality_handlers, 为 audio/vibration 预留.
-- **v3.x**: 设计完成，待实现。Edge, LiDAR, 多节点, 特征前置+按需回传金矿.
-- **v4.x**: Deep lineage (transform log, data lineage graph).
+- **v3.x**: 设计完成，待实现。**模型就绪**：数据血缘、Transform Log、MLflow 数据→模型追溯；团队可直接跑模型。
+- **v4.x**: 设计完成，待实现。**规模与扩展**：多模态、FFT、Edge、多节点、分权管理。
 
 See **docs/Roadmap.md**.
 
@@ -201,7 +202,7 @@ See **docs/Roadmap.md**.
 
 ## Edge deployment: why it fits remote / mining sites
 
-**Built for the Unpredictable Edge.** This pipeline is designed so that **v3-style edge deployment** keeps raw data on site and only sends small outputs out. That makes it a good fit for mines and other remote sites where bandwidth is expensive and data sovereignty matters.
+**Built for the Unpredictable Edge.** This pipeline is designed so that **v4-style edge deployment** keeps raw data on site and only sends small outputs out. That makes it a good fit for mines and other remote sites where bandwidth is expensive and data sovereignty matters.
 
 | Benefit | What it means |
 |--------|----------------|
