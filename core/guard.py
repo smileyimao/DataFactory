@@ -141,6 +141,7 @@ def run_guard() -> None:
     watch_path = cfg.get("paths", {}).get("raw_video", "")
     if not os.path.exists(watch_path):
         os.makedirs(watch_path)
+    config_loader.init_storage_from_config(cfg)
     startup_scan()
     print("🚀 [DataFactory 自动工厂启动]")
     print(f"📍 监控路径: {os.path.abspath(watch_path)}")

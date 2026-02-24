@@ -1,5 +1,25 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
+## [v2.8] - 2026-02-20
+### 📝 版本概览
+**Ingest 预检与流程模块化**：在 Watchdog + 轮询凑批之后、送入 pipeline 之前，增加 dedup + 首帧解码预检。失败项移入 quarantine，流程更清晰、更模块化。
+
+#### Ingest 预检（门卫）
+* **dedup_at_ingest**：fingerprint + DB 查重，重复视频移入 `quarantine/duplicate/`，不进入 pipeline。
+* **decode_check_at_ingest**：轻量首帧解码（cv2.VideoCapture 读一帧），失败移入 `quarantine/decode_failed/`。
+* **pre_filter_enabled**：可配置开关；`ingest.pre_filter_enabled`、`dedup_at_ingest`、`decode_check_at_ingest` 独立控制。
+* **core/ingest.py**：新增 `pre_filter(cfg, paths)`，返回通过预检的路径与统计；`_decode_check()`、`_move_to_quarantine()`。
+* **core/pipeline.py**：`get_video_paths` 之后调用 `pre_filter`，仅通过项进入 Funnel QC。
+* **paths.quarantine**：`storage/quarantine`，支持 env 覆盖；ensure_dirs 含 quarantine。
+* **guard**：启动时 `init_storage_from_config` 创建 quarantine 目录。
+
+#### 流程与文档
+* 流程命名：QC → Funnel QC，Review → Admission；流程更清晰：发现 → 预检（门卫）→ 合格进厂 → Funnel QC → Admission → Archive。
+* **docs/settings_guide.md**：quarantine、pre_filter 配置说明。
+* **docs/architecture_mindmap.md**：Ingest Pre-Filter 节点。
+
+---
+
 ## [v2.7] - 2026-02-20
 ### 📝 版本概览
 **Edge 部署前最关键一步**：工业级加固（P0/P1/P2/P3）、路径解耦、Batch 目录重命名。为边缘部署提供：重试、DB 容错、健康检查、metrics、配置校验、路径可覆盖，确保产线在无人值守环境下稳定运行。

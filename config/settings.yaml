@@ -14,6 +14,7 @@ paths:
   training: "storage/training"                # 达标数据并入的训练集根目录
   golden: "storage/golden"                 # 黄金库：开机自检时真跑一遍用；边缘部署可改为挂载点如 /opt/factory/golden
   pending_review: "storage/pending_review"   # 待复核队列目录（中控台 dashboard）
+  quarantine: "storage/quarantine"           # Ingest 预检：重复/解码失败视频移入此目录
   logs: "logs"
   db_file: "db/factory_admin.db"
 
@@ -27,7 +28,7 @@ paths:
     inspection: "inspection"
 
   # 启动时确保存在的目录（可覆盖以适配自定义部署）
-  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, logs]
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, quarantine, logs]
 
 ingest:
   batch_wait_seconds: 8
@@ -35,6 +36,10 @@ ingest:
   video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
   file_stable_check_interval: 1
   file_stable_min_seconds: 2
+  # Ingest 预检：在送入 pipeline 前做 dedup + 首帧解码检查，失败项移入 quarantine
+  pre_filter_enabled: true
+  dedup_at_ingest: true
+  decode_check_at_ingest: true
 
 quality_thresholds:
   min_brightness: 55.0

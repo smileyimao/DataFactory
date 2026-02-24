@@ -12,7 +12,7 @@ flowchart TB
 
     C --> E[pipeline.run_smart_factory]
     E --> F[从 storage/raw 扫描视频]
-    F --> G[Ingest → QC → Review → Archive]
+    F --> G[Ingest → Funnel QC → Admission → Archive]
     G --> H[结束退出]
 
     D --> I[开机大扫除 startup_scan]
@@ -47,7 +47,7 @@ flowchart LR
 
 ---
 
-## 3. 主流水线：Ingest → QC → Review → Archive
+## 3. 主流水线：Ingest → Funnel QC → Admission → Archive
 
 ```mermaid
 flowchart TB
@@ -57,7 +57,7 @@ flowchart TB
         I1 --> I2
     end
 
-    subgraph qc["2. QC 质检"]
+    subgraph qc["2. Funnel QC 质检"]
         Q1[指纹采集 MD5]
         Q2[质量检测 + 重复检测]
         Q3[源文件移入 Batch/source]
@@ -70,7 +70,7 @@ flowchart TB
         S2[blocked 被拦]
     end
 
-    subgraph review["3. Review 复核"]
+    subgraph review["3. Admission 准入"]
         R1[仅对 blocked 发一封邮件]
         R2[逐条 y/n/all/none 人工决策]
         R3[→ to_produce 或 to_reject]

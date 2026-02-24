@@ -138,6 +138,14 @@ def run_smart_factory(
             print(f"❌ 警告：未发现视频物料：{raw}")
         return
 
+    # Ingest 预检：dedup + 首帧解码，失败项移入 quarantine
+    if cfg.get("ingest", {}).get("pre_filter_enabled", False):
+        print("\n🔍 [Ingest 预检] dedup + 首帧解码检查...")
+        videos, q_stats = ingest.pre_filter(cfg, videos)
+        if not videos:
+            print("❌ 预检后无有效物料（全部已隔离至 quarantine）")
+            return
+
     start_time = time.time()
     t_ingest = time.time()
     total_bytes = sum(os.path.getsize(p) for p in videos if os.path.isfile(p))

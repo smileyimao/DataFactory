@@ -24,6 +24,7 @@
 | `batch_fails_suffix` | 废片目录后缀 | `_Fails` |
 | `batch_subdirs` | 批次内子目录名（reports/source/refinery/inspection） | 见 path_decoupling.md |
 | `pending_review` | 待复核队列目录（中控台） | `storage/pending_review` |
+| `quarantine` | Ingest 预检：重复/解码失败视频移入此目录 | `storage/quarantine` |
 
 **Path decoupling**：批次目录名、前缀、后缀均在 paths 配置，改名只改此处。支持 `DATAFACTORY_RAW_VIDEO` 等环境变量覆盖。详见 **docs/path_decoupling.md**。
 
@@ -40,6 +41,9 @@
 | `video_extensions` | 视为视频的文件扩展名 | `[".mp4", ".mov", ".avi", ".mkv"]` |
 | `file_stable_check_interval` | 文件稳定性检测：轮询间隔（秒） | `1` |
 | `file_stable_min_seconds` | 文件大小不变持续多少秒视为稳定 | `2` |
+| `pre_filter_enabled` | Ingest 预检：在送入 pipeline 前做 dedup + 首帧解码，失败项移入 quarantine | `true` |
+| `dedup_at_ingest` | 预检时查重（fingerprint + DB），重复移入 quarantine/duplicate | `true` |
+| `decode_check_at_ingest` | 预检时首帧解码检查，失败移入 quarantine/decode_failed | `true` |
 
 **Guard 巡逻逻辑**（详见下方「Guard 模式巡逻逻辑」）：Watchdog 事件 + 轮询兜底双通道；产线加工期间新视频会登记，本批结束后自动再扫。
 

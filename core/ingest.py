@@ -1,10 +1,13 @@
 # core/ingest.py — 入场：解析或扫描得到待处理视频路径列表
+# Ingest 预检：dedup + 首帧解码检查，失败项移入 quarantine
 import os
-import glob
-from typing import List, Optional
+import logging
+from typing import List, Optional, Tuple
 
-from engines import file_tools
+from engines import file_tools, fingerprinter, db_tools, retry_utils
 from config import config_loader
+
+logger = logging.getLogger(__name__)
 
 
 def get_video_paths(
@@ -22,3 +25,89 @@ def get_video_paths(
         return out
     exts = tuple(cfg.get("ingest", {}).get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
     return file_tools.list_video_paths(raw_dir, exts)
+
+
+def _decode_check(path: str) -> bool:
+    """轻量首帧解码：尝试打开视频并读一帧。成功返回 True，失败返回 False。"""
+    try:
+        import cv2
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return False
+        ret, frame = cap.read()
+        cap.release()
+        return bool(ret and frame is not None)
+    except Exception as e:
+        logger.warning("首帧解码失败: path=%s — %s", path, e)
+        return False
+
+
+def _move_to_quarantine(src: str, subdir: str, cfg: dict) -> bool:
+    """将文件移到 quarantine/subdir/，使用 retry_utils。成功返回 True。"""
+    paths = cfg.get("paths", {})
+    base = paths.get("quarantine", "")
+    if not base:
+        return False
+    dest_dir = os.path.join(base, subdir)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, os.path.basename(src))
+    if os.path.exists(dest):
+        base_name, ext = os.path.splitext(os.path.basename(src))
+        dest = os.path.join(dest_dir, f"{base_name}_dup{ext}")
+    retry_cfg = cfg.get("retry", {})
+    return retry_utils.safe_move_with_retry(
+        src, dest,
+        max_attempts=retry_cfg.get("max_attempts", 3),
+        backoff_seconds=retry_cfg.get("backoff_seconds", 1.0),
+    )
+
+
+def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
+    """
+    Ingest 预检：dedup + 首帧解码检查。失败项移入 quarantine，并记录日志。
+    返回 (通过预检的路径列表, 统计 {"quarantine_duplicate": N, "quarantine_decode_failed": N})。
+    """
+    ingest_cfg = cfg.get("ingest", {})
+    if not ingest_cfg.get("pre_filter_enabled", False):
+        return video_paths, {"quarantine_duplicate": 0, "quarantine_decode_failed": 0}
+
+    dedup = ingest_cfg.get("dedup_at_ingest", True)
+    decode_check = ingest_cfg.get("decode_check_at_ingest", True)
+    db_path = cfg.get("paths", {}).get("db_file", "")
+
+    passed: List[str] = []
+    stats = {"quarantine_duplicate": 0, "quarantine_decode_failed": 0}
+    seen_fp: set = set()
+
+    for path in video_paths:
+        if not os.path.isfile(path):
+            continue
+
+        # 1. Dedup
+        if dedup and db_path:
+            fp = fingerprinter.compute(path) or ""
+            if fp:
+                rep = db_tools.get_reproduce_info(db_path, fp)
+                dup_in_batch = fp in seen_fp
+                if rep is not None or dup_in_batch:
+                    if _move_to_quarantine(path, "duplicate", cfg):
+                        stats["quarantine_duplicate"] += 1
+                        logger.info("Ingest 预检-重复: 已移入 quarantine — %s", os.path.basename(path))
+                        print(f"   🚫 [Ingest 预检] 重复: {os.path.basename(path)} → quarantine/duplicate/")
+                    continue
+                seen_fp.add(fp)
+
+        # 2. Decode check
+        if decode_check:
+            if not _decode_check(path):
+                if _move_to_quarantine(path, "decode_failed", cfg):
+                    stats["quarantine_decode_failed"] += 1
+                    logger.warning("Ingest 预检-解码失败: 已移入 quarantine — %s", os.path.basename(path))
+                    print(f"   🚫 [Ingest 预检] 解码失败: {os.path.basename(path)} → quarantine/decode_failed/")
+                continue
+
+        passed.append(path)
+
+    if stats["quarantine_duplicate"] or stats["quarantine_decode_failed"]:
+        print(f"   📋 [Ingest 预检] 共隔离 {stats['quarantine_duplicate']} 重复 + {stats['quarantine_decode_failed']} 解码失败，{len(passed)} 个进入 pipeline")
+    return passed, stats

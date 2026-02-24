@@ -57,7 +57,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     paths.setdefault("ensure_dirs", [
         "raw_video", "data_warehouse", "rejected_material", "redundant_archives",
         "reports", "labeling_export", "labeled_return", "training", "golden",
-        "pending_review", "logs",
+        "pending_review", "quarantine", "logs",
     ])
     data["paths"] = paths
     data["_base_dir"] = base
@@ -112,6 +112,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     data.setdefault("labeling_pool", {})
     data["labeling_pool"].setdefault("auto_update_after_batch", True)
     data.setdefault("retry", {"max_attempts": 3, "backoff_seconds": 1.0})
+    ig = data.setdefault("ingest", {})
+    ig.setdefault("pre_filter_enabled", True)
+    ig.setdefault("dedup_at_ingest", True)
+    ig.setdefault("decode_check_at_ingest", True)
     data.setdefault("timezone", "America/Toronto")
     data.setdefault("logging", {"max_bytes": 10 * 1024 * 1024, "backup_count": 5})
     ec = data.setdefault("email_setting", {})
@@ -221,16 +225,20 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "training": os.path.join(base_dir, "storage", "training"),
             "golden": os.path.join(base_dir, "storage", "golden"),
             "pending_review": os.path.join(base_dir, "storage", "pending_review"),
+            "quarantine": os.path.join(base_dir, "storage", "quarantine"),
             "logs": os.path.join(base_dir, "logs"),
             "db_file": os.path.join(base_dir, "db", "factory_admin.db"),
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
             "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection"},
-            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "pending_review", "logs"],
+            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "pending_review", "quarantine", "logs"],
         },
         "ingest": {
             "batch_wait_seconds": 8,
             "video_extensions": [".mp4", ".mov", ".avi", ".mkv"],
+            "pre_filter_enabled": True,
+            "dedup_at_ingest": True,
+            "decode_check_at_ingest": True,
         },
         "quality_thresholds": {
             "min_brightness": 55.0,
