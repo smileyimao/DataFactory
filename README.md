@@ -6,6 +6,12 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 
 > **Built for the Unpredictable Edge** — *Reliability as a First-Class Citizen.* Bridging the gap between AI and industrial reality; minimizing technical debt through strict decoupling.
 
+### System overview
+
+![DataFactory Architecture](docs/DataFactory.png)
+
+*Pipeline • System Guarantees • MLOps — automated data flow from ingest to archive, with reliability and continuous evolution built in.*
+
 ---
 
 ## Quick start
@@ -58,13 +64,14 @@ For readers familiar with industrial / MLOps terminology, the design maps as fol
 | **v2.6** | Smart Ingest：I-帧、运动唤醒、级联检测（四板斧 3/4） | ✅ |
 | **v2.7** | 工业级加固：Path decoupling、P0/P1/P2/P3（重试、DB 错误处理、健康检查、时区/日志/邮件可配置、metrics、配置校验）— **Edge 部署前最关键一步** | ✅ |
 | **v2.8** | Ingest 预检：dedup + 首帧解码，失败项移入 quarantine — **流程模块化** | ✅ |
-| **v3** | Edge、LiDAR、多节点、特征前置+按需回传 | 设计完成，待实现 |
+| **v2.9** | Modality 解耦：config modality，抽象层，为 audio/vibration 预留 | ✅ |
+| **v3** | 多模态、FFT、predictive maintenance、Edge、多节点 | 设计完成，待实现 |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x** through **v2.8** (Ingest 预检，流程模块化). Next target: **v3** (edge, LiDAR, multi-node).
+Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **v3** (audio/vibration, FFT, predictive maintenance, edge).
 
 ### v1.x — Production pipeline
 
@@ -151,6 +158,7 @@ Current code covers **v1.x** through **v2.8** (Ingest 预检，流程模块化).
 | Layer | Path | Description |
 |-------|------|-------------|
 | Entry | `main.py` | Single run or **Headless & Guard mode** (`--guard`: Watchdog + 轮询兜底) |
+| Modality | `engines/modality_handlers.py` | decode_check 按 modality 分发；v2.9 解耦，v3 扩展 audio/vibration |
 | Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver；time_utils（时区） |
 | Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, retry_utils, metrics, labeling_export, labeled_return |
 | Config | `config/` | settings.yaml, config_loader; paths and thresholds |
@@ -173,6 +181,7 @@ See **docs/architecture.md**, **docs/architecture_mindmap.md**（思维导图骨
 - **v2.6**: Done. Smart Ingest — I-帧, 运动唤醒, 级联检测 (四板斧 3/4).
 - **v2.7**: Done. 工业级加固 — P0/P1/P2/P3, Path decoupling, Batch 重命名 (Edge 部署前最关键一步).
 - **v2.8**: Done. Ingest 预检 — dedup + 首帧解码, quarantine, 流程模块化.
+- **v2.9**: Done. Modality 解耦 — config modality, modality_handlers, 为 audio/vibration 预留.
 - **v3.x**: 设计完成，待实现。Edge, LiDAR, 多节点, 特征前置+按需回传金矿.
 - **v4.x**: Deep lineage (transform log, data lineage graph).
 
