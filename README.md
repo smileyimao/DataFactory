@@ -41,14 +41,14 @@ First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 | **v2.x** | YOLO、双门槛、MLflow、按置信分层落盘、伪标签、工业/智能报告 | ✅ |
 | **v2.5** | 3_待人工精简、待标池自动更新、新旧模型对比、厂长中控台、标注回传与伪标签校验 | ✅ |
 | **v2.6** | Smart Ingest：I-帧、运动唤醒、级联检测（四板斧 3/4） | ✅ |
-| **工业级加固** | Path decoupling、P0/P1/P2/P3（重试、DB 错误处理、健康检查、时区/日志/邮件可配置、metrics、配置校验） | ✅ |
+| **v2.7** | 工业级加固：Path decoupling、P0/P1/P2/P3（重试、DB 错误处理、健康检查、时区/日志/邮件可配置、metrics、配置校验）— **Edge 部署前最关键一步** | ✅ |
 | **v3** | Edge、LiDAR、多节点、特征前置+按需回传 | 设计完成，待实现 |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x** through **v2.6** (Smart Ingest). Next target: **v3** (edge, LiDAR, multi-node).
+Current code covers **v1.x** through **v2.7** (工业级加固，Edge 部署前最关键一步). Next target: **v3** (edge, LiDAR, multi-node).
 
 ### v1.x — Production pipeline
 
@@ -108,7 +108,7 @@ Current code covers **v1.x** through **v2.6** (Smart Ingest). Next target: **v3*
 | **级联检测** | `vision.cascade_light_model_path`: 轻量模型初筛，有东西才上主模型；空画面被过滤。 |
 | **Embedding/Re-ID** | 待做：向量库检索、“谁在哪儿”报表。 |
 
-### 工业级加固（Path decoupling + Poka yoke）
+### v2.7 — 工业级加固（Path decoupling + Poka yoke）
 
 | 类别 | 要点 |
 |------|------|
@@ -153,6 +153,7 @@ See **docs/architecture.md**, **docs/settings_guide.md**; **ROOT_LAYOUT.md** for
 - **v2.x**: Done. Vision, dual gate, MLflow, industrial + vision reports.
 - **v2.5**: Done. 3_待人工精简, 待标池自动更新, 新旧模型对比, 厂长中控台, 标注回传与伪标签校验.
 - **v2.6**: Done. Smart Ingest — I-帧, 运动唤醒, 级联检测 (四板斧 3/4).
+- **v2.7**: Done. 工业级加固 — P0/P1/P2/P3, Path decoupling, Batch 重命名 (Edge 部署前最关键一步).
 - **v3.x**: 设计完成，待实现。Edge, LiDAR, 多节点, 特征前置+按需回传金矿.
 - **v4.x**: Deep lineage (transform log, data lineage graph).
 
@@ -186,6 +187,6 @@ This pipeline is designed so that **v3-style edge deployment** keeps raw data on
 | I-帧 | `use_i_frame_only=true` + 有 ffprobe 时只解 I-帧；无 ffprobe 时回退按秒 |
 | 运动唤醒 | `motion_threshold>0` 时静止画面不跑 YOLO，日志有「四板斧过滤」 |
 | 级联检测 | `cascade_light_model_path` 配置时，空画面被轻量模型过滤 |
-| **工业级加固** | `GET /api/health` 返回 200；`GET /api/metrics` 有 counters；`timezone` 改配置后日志时区变化；`validate_config` 非法配置返回错误 |
+| **v2.7 工业级加固** | `GET /api/health` 返回 200；`GET /api/metrics` 有 counters；`timezone` 改配置后日志时区变化；`validate_config` 非法配置返回错误 |
 
 详见 **docs/testing_and_audit.md**（dry run 说明、流程追踪、阑尾审计）。

@@ -1,39 +1,49 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
-## [v2.6] - 2026-02-23
+## [v2.7] - 2026-02-20
 ### 📝 版本概览
-**Smart Ingest / 高效筛查**：在 Ingest 前增加四板斧（I-帧、运动唤醒、级联检测），减少无效解码与 YOLO 推理量。主流程 Ingest → QC → Review → Archive 不变，仅优化「解码 + 检测」阶段的算力与带宽消耗。
+**Edge 部署前最关键一步**：工业级加固（P0/P1/P2/P3）、路径解耦、Batch 目录重命名。为边缘部署提供：重试、DB 容错、健康检查、metrics、配置校验、路径可覆盖，确保产线在无人值守环境下稳定运行。
 
-#### 0. P1/P2/P3 工业级加固（poka yoke，更 robust）
-* **P1 时区**：core/time_utils.py，config timezone；qc_engine、archiver、db_tools、report_tools、pending_queue、labeled_return 统一使用。
-* **P1 视频扩展名**：startup._get_video_extensions(cfg) 从 config 读取。
-* **P1 异常日志**：fingerprinter 失败时打 warning，不吞异常。
-* **P1 配置校验**：validate_config 校验 min<max、gate∈[0,100]、双门槛一致性。
-* **P1 日志轮转**：RotatingFileHandler，config logging.max_bytes/backup_count；main 先 load_config 再 setup_logging(cfg)。
-* **P2 metrics**：engines/metrics.py 简单 counters；retry 失败时 inc(file_move_errors_total)；pipeline 完成时 inc(batch_processed_total)；GET /api/metrics。
-* **P2 临时目录**：qc_engine 用 TemporaryDirectory 上下文管理器，异常时自动清理。
-* **P2 邮件重试**：notifier 支持 max_retries、retry_delay_seconds，失败时按配置重试。
-* **P3 代码规范**：pyproject.toml black + isort + mypy 配置。
-
-#### 1. P0 工业级加固（稳定性）
+#### P0 稳定性（poka yoke）
 * **文件操作重试**：engines/retry_utils.py，safe_move_with_retry；config retry.max_attempts/backoff_seconds；qc_engine、archiver 使用。
 * **数据库错误处理**：db_tools 所有操作捕获 sqlite3.Error，记录日志，init_db/record_* 返回 bool；main/guard 启动时 init_db 失败则 exit(1)。
 * **健康检查**：GET /api/health 检查 DB 连通性、关键目录可写、config 校验；异常时 503。
 * **路径遍历防护**：dashboard get_thumbnail 用 Path.resolve() 严格校验，拒绝 ..、/、\\。
 
-#### 1. Path Decoupling 路径解耦（工业级）
+#### P1 可维护性
+* **时区**：core/time_utils.py，config timezone；qc_engine、archiver、db_tools、report_tools、pending_queue、labeled_return 统一使用。
+* **视频扩展名**：startup._get_video_extensions(cfg) 从 config 读取。
+* **异常日志**：fingerprinter 失败时打 warning，不吞异常。
+* **配置校验**：validate_config 校验 min<max、gate∈[0,100]、双门槛一致性。
+* **日志轮转**：RotatingFileHandler，config logging.max_bytes/backup_count；main 先 load_config 再 setup_logging(cfg)。
+
+#### P2 可观测性
+* **metrics**：engines/metrics.py 简单 counters；retry 失败时 inc(file_move_errors_total)；pipeline 完成时 inc(batch_processed_total)；GET /api/metrics。
+* **临时目录**：qc_engine 用 TemporaryDirectory 上下文管理器，异常时自动清理。
+* **邮件重试**：notifier 支持 max_retries、retry_delay_seconds，失败时按配置重试。
+
+#### P3 代码规范
+* **pyproject.toml**：black + isort + mypy 配置。
+
+#### Path Decoupling 路径解耦
 * **config/settings.yaml**：paths.batch_subdirs、batch_prefix、batch_fails_suffix 集中配置；改名只改此处。
 * **config_loader**：get_batch_paths()、get_batch_media_subdirs()、get_batch_prefix()、get_pending_queue_path() 等 API。
 * **环境变量覆盖**：DATAFACTORY_RAW_VIDEO、DATAFACTORY_DATA_WAREHOUSE 等可覆盖 paths。
 * **validate_config()**：启动前配置校验；init_storage_from_config() 按配置创建目录。
 * **docs/path_decoupling.md**：路径解耦设计文档。
 
-#### 1. Batch 目录重命名
+#### Batch 目录重命名
 * **reports**：质量报告、工业报表、智能检测报告、version_info（原 _reports）。
 * **source**：本批源视频归档（原 0_Source_Video）。
 * **refinery**：高置信燃料，manifest+图+txt 直接反哺模型（原 2_高置信_燃料）。
 * **inspection**：待人工，供复核/抽检（原 3_待人工）。
 * **labeling_export**：扫描 refinery、inspection、source，兼容旧版目录名。
+
+---
+
+## [v2.6] - 2026-02-20
+### 📝 版本概览
+**Smart Ingest / 高效筛查**：在 Ingest 前增加四板斧（I-帧、运动唤醒、级联检测），减少无效解码与 YOLO 推理量。主流程 Ingest → QC → Review → Archive 不变，仅优化「解码 + 检测」阶段的算力与带宽消耗。
 
 ### 🚀 新增 / 变更
 
