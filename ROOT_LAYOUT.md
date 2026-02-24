@@ -24,8 +24,8 @@
 | 目录 | 说明 |
 |------|------|
 | **config/** | 司令部。`settings.yaml` 路径与阈值；`config_loader.py` 加载与目录初始化；`logging.py` 日志配置。 |
-| **core/** | 传送带。业务流：ingest → qc_engine → reviewer → archiver；另有 guard 监控。 |
-| **engines/** | 工具箱。quality_tools、db_tools、report_tools、notifier、file_tools 等纯工具。 |
+| **core/** | 传送带。业务流：ingest → qc_engine → reviewer → archiver；time_utils（时区）；guard 监控。 |
+| **engines/** | 工具箱。quality_tools、db_tools、report_tools、notifier、file_tools、retry_utils、metrics、vision_detector 等纯工具。 |
 | **storage/** | 仓储中心。程序读写：raw、archive、rejected、redundant、test、reports。启动时自动创建子目录。 |
 | **db/** | 账本。`factory_admin.db` 生产数据库；启动时若不存在会初始化。 |
 | **docs/** | 图纸室。架构说明、配置说明、Roadmap、交接文档等。 |

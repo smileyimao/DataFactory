@@ -1,5 +1,6 @@
 # 🏭 DataFactory 配置中心 (v1.6)
 # 路径均相对于项目根目录 (base_dir)，由 config_loader 解析为绝对路径
+# 工业级：路径解耦，改名只需改此处，支持 env 覆盖（如 DATA_WAREHOUSE）
 
 paths:
   raw_video: "/Users/mac/Downloads/video"
@@ -12,8 +13,21 @@ paths:
   labeled_return: "storage/labeled_return"   # 标注回传落盘目录（scripts/import_labeled_return.py）
   training: "storage/training"                # 达标数据并入的训练集根目录
   golden: "storage/golden"                 # 黄金库：开机自检时真跑一遍用；边缘部署可改为挂载点如 /opt/factory/golden
+  pending_review: "storage/pending_review"   # 待复核队列目录（中控台 dashboard）
   logs: "logs"
   db_file: "db/factory_admin.db"
+
+  # 批次目录结构（path decoupling：改名只改此处）
+  batch_prefix: "Batch_"
+  batch_fails_suffix: "_Fails"
+  batch_subdirs:
+    reports: "reports"
+    source: "source"
+    refinery: "refinery"
+    inspection: "inspection"
+
+  # 启动时确保存在的目录（可覆盖以适配自定义部署）
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, logs]
 
 ingest:
   batch_wait_seconds: 8
@@ -38,8 +52,8 @@ production_setting:
   save_normal: true
   save_warning: true
   save_only_screened: false  # true=只落盘「Warning 或 有 YOLO 检测」的帧，减少全量切片（见 docs/smart_slicing.md）
-  confidence_tiered_output: true   # true=按置信分层落盘(2_高置信_燃料、3_待人工)；false=全部写 2_Mass_Production
-  human_review_flat: true   # true=3_待人工 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
+  confidence_tiered_output: true   # true=按置信分层落盘(refinery、inspection)；false=全部写 refinery
+  human_review_flat: true   # true=inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
 
 review:
   mode: dashboard   # terminal=终端逐项 y/n；dashboard=入队由中控台复核
@@ -51,6 +65,8 @@ email_setting:
   smtp_port: 587
   sender: "smileyimao@icloud.com"
   receiver: "xituled@gmail.com"
+  max_retries: 3        # P2 邮件发送重试
+  retry_delay_seconds: 5
 
 # v2.0 视觉质检（YOLO）：开关、模型路径、抽帧与推理参数（均从配置读取，无硬编码）
 vision:
@@ -83,11 +99,17 @@ version_mapping:
   algorithm_version: "rules_v1"   # 规则质检算法版本
   vision_model_version: ""       # 视觉模型版本，留空则由运行时加载的模型路径填充
 
+# P1 工业级：时区、日志轮转
+timezone: "America/Toronto"
+logging:
+  max_bytes: 10485760   # 10MB 单文件，超则轮转
+  backup_count: 5       # 保留 5 个历史文件
+
 # 开机自检与滚动清零（全球/边缘部署可按存储环境覆盖）
 startup_self_check: true    # 启动时校验配置与关键目录可写，失败则退出
 startup_golden_run: false  # 为 true 时用 paths.golden 下视频真跑一遍 QC，失败则退出（edge 建议开启）
 
-# 待标池自动更新：每批归档后自动将 3_待人工 追加到 for_labeling
+# 待标池自动更新：每批归档后自动将 inspection 追加到 for_labeling
 labeling_pool:
   auto_update_after_batch: true
 
@@ -95,6 +117,11 @@ labeling_pool:
 labeled_return:
   consistency_threshold: 0.95   # 一致率低于此值报警，要求差异部分复核
   alert_via_email: true        # 是否发邮件报警（使用 email_setting）
+
+# P0 工业级：文件操作重试（瞬时故障如 NFS 抖动）
+retry:
+  max_attempts: 3
+  backoff_seconds: 1.0
 
 rolling_cleanup:
   logs_retention_days: 30      # 日志保留天数，超期删除（0=不删）

@@ -1,34 +1,25 @@
 # core/pending_queue.py — 待复核队列：blocked 项入队，供中控台读取与决策
 """
 厂长中控台队列：blocked 项写入 JSON，不阻塞产线；中控台读取后单项/批量放行或拒绝。
+路径从 config 读取（path decoupling）。
 """
 import json
 import os
 import uuid
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
+from core import time_utils
+
 logger = logging.getLogger(__name__)
 
-QUEUE_DIR = "storage/pending_review"
-QUEUE_FILE = "queue.json"
-THUMBS_DIR = "thumbs"
+THUMBS_SUBDIR = "thumbs"
 
 
-def _toronto_now() -> str:
-    return datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _get_queue_path(base_dir: str) -> str:
-    return os.path.join(base_dir, QUEUE_DIR, QUEUE_FILE)
-
-
-def _get_thumbs_dir(base_dir: str) -> str:
-    return os.path.join(base_dir, QUEUE_DIR, THUMBS_DIR)
+def _toronto_now(cfg: Dict[str, Any] = None) -> str:
+    return time_utils.now_toronto(cfg).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _extract_thumbnail(video_path: str, thumb_path: str, max_size: int = 320) -> bool:
@@ -54,7 +45,7 @@ def _extract_thumbnail(video_path: str, thumb_path: str, max_size: int = 320) ->
 
 
 def add_items(
-    base_dir: str,
+    cfg: Dict[str, Any],
     blocked: List[Dict[str, Any]],
     path_info: Dict[str, Any],
 ) -> int:
@@ -63,8 +54,9 @@ def add_items(
     """
     if not blocked:
         return 0
-    queue_path = _get_queue_path(base_dir)
-    thumbs_dir = _get_thumbs_dir(base_dir)
+    from config import config_loader
+    queue_path = config_loader.get_pending_queue_path(cfg)
+    thumbs_dir = config_loader.get_pending_thumbs_dir(cfg)
     os.makedirs(os.path.dirname(queue_path), exist_ok=True)
     os.makedirs(thumbs_dir, exist_ok=True)
 
@@ -81,8 +73,8 @@ def add_items(
     for item in blocked:
         item_id = str(uuid.uuid4())[:8]
         archive_path = item.get("archive_path", "")
-        thumb_rel = f"{THUMBS_DIR}/{item_id}.jpg"
-        thumb_abs = os.path.join(base_dir, QUEUE_DIR, thumb_rel)
+        thumb_rel = f"{THUMBS_SUBDIR}/{item_id}.jpg"
+        thumb_abs = os.path.join(thumbs_dir, f"{item_id}.jpg")
         if archive_path and os.path.isfile(archive_path):
             _extract_thumbnail(archive_path, thumb_abs)
         entry = {
@@ -97,7 +89,7 @@ def add_items(
             "duplicate_created_at": item.get("duplicate_created_at"),
             "fingerprint": item.get("fingerprint"),
             "thumbnail": thumb_rel,
-            "created_at": _toronto_now(),
+            "created_at": _toronto_now(cfg),
             "path_info": path_info,
         }
         existing.append(entry)
@@ -113,9 +105,10 @@ def add_items(
     return added
 
 
-def get_all(base_dir: str) -> List[Dict[str, Any]]:
+def get_all(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
     """获取队列中全部待复核项。"""
-    queue_path = _get_queue_path(base_dir)
+    from config import config_loader
+    queue_path = config_loader.get_pending_queue_path(cfg)
     if not os.path.isfile(queue_path):
         return []
     try:
@@ -126,8 +119,9 @@ def get_all(base_dir: str) -> List[Dict[str, Any]]:
         return []
 
 
-def _save_queue(base_dir: str, items: List[Dict[str, Any]]) -> bool:
-    queue_path = _get_queue_path(base_dir)
+def _save_queue(cfg: Dict[str, Any], items: List[Dict[str, Any]]) -> bool:
+    from config import config_loader
+    queue_path = config_loader.get_pending_queue_path(cfg)
     try:
         os.makedirs(os.path.dirname(queue_path), exist_ok=True)
         with open(queue_path, "w", encoding="utf-8") as f:
@@ -139,23 +133,18 @@ def _save_queue(base_dir: str, items: List[Dict[str, Any]]) -> bool:
 
 
 def apply_decision(
-    base_dir: str,
+    cfg: Dict[str, Any],
     item_id: str,
     decision: str,
-    cfg: Optional[dict] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     对单项执行放行或拒绝，调用 archiver 归档。返回 (成功, 错误信息)。
     """
-    items = get_all(base_dir)
+    items = get_all(cfg)
     idx = next((i for i, x in enumerate(items) if x.get("id") == item_id), None)
     if idx is None:
         return False, "未找到该项"
     item = items.pop(idx)
-    if cfg is None:
-        from config import config_loader
-        config_loader.set_base_dir(base_dir)
-        cfg = config_loader.load_config()
     path_info = item.get("path_info") or {}
     if decision == "approve":
         from core import archiver
@@ -164,27 +153,22 @@ def apply_decision(
         reason = "duplicate" if item.get("is_duplicate") else "quality"
         from core import archiver
         archiver.archive_rejected(cfg, [(item, reason)], path_info.get("batch_id", ""))
-    if not _save_queue(base_dir, items):
+    if not _save_queue(cfg, items):
         return False, "队列保存失败"
     return True, None
 
 
 def apply_batch_decision(
-    base_dir: str,
+    cfg: Dict[str, Any],
     item_ids: List[str],
     decision: str,
-    cfg: Optional[dict] = None,
 ) -> Tuple[int, List[str]]:
     """
     批量执行放行或拒绝。返回 (成功数, 失败 id 列表)。
     """
-    if cfg is None:
-        from config import config_loader
-        config_loader.set_base_dir(base_dir)
-        cfg = config_loader.load_config()
     failed = []
     for iid in item_ids:
-        ok, err = apply_decision(base_dir, iid, decision, cfg)
+        ok, err = apply_decision(cfg, iid, decision)
         if not ok:
             failed.append(iid)
     return len(item_ids) - len(failed), failed

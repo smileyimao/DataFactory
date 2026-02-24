@@ -20,8 +20,14 @@
 | `golden` | 黄金库：开机自检时真跑 QC 用的参考视频目录；边缘部署可改为挂载点如 `/opt/factory/golden` | `storage/golden` |
 | `logs` | 日志目录 | `logs` |
 | `db_file` | 生产数据库文件路径 | `db/factory_admin.db` |
+| `batch_prefix` | 批次目录前缀 | `Batch_` |
+| `batch_fails_suffix` | 废片目录后缀 | `_Fails` |
+| `batch_subdirs` | 批次内子目录名（reports/source/refinery/inspection） | 见 path_decoupling.md |
+| `pending_review` | 待复核队列目录（中控台） | `storage/pending_review` |
 
-说明：启动时 `init_storage_structure()` 会创建 `storage/raw`、`storage/archive`、`storage/rejected`、`storage/redundant`、`storage/test`、`storage/reports`、`storage/for_labeling`、`storage/labeled_return`、`storage/training`、`storage/golden`、`storage/pending_review` 和 `db/`，无需手动建目录。
+**Path decoupling**：批次目录名、前缀、后缀均在 paths 配置，改名只改此处。支持 `DATAFACTORY_RAW_VIDEO` 等环境变量覆盖。详见 **docs/path_decoupling.md**。
+
+说明：启动时 `init_storage_from_config(cfg)` 会根据 `paths.ensure_dirs` 创建目录。
 
 ---
 
@@ -63,7 +69,7 @@
 | `save_normal` | 是否保存 Normal 帧样本 | `true` |
 | `save_warning` | 是否保存 Warning 帧样本 | `true` |
 | `save_only_screened` | 为 true 时只落盘「质量异常(Warning) 或 该帧有 YOLO 检测」的帧，减少全量切片 | `false` |
-| `human_review_flat` | 为 true 时 3_待人工 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入 | `true` |
+| `human_review_flat` | 为 true 时 inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入 | `true` |
 
 详见 **docs/smart_slicing.md**（YOLO 筛查与只落盘关键帧）。
 
@@ -95,6 +101,8 @@
 | `smtp_port` | 端口 | `587` |
 | `sender` | 发件人邮箱 | 必填 |
 | `receiver` | 收件人邮箱 | 必填 |
+| `max_retries` | P2 邮件发送失败重试次数 | `3` |
+| `retry_delay_seconds` | 重试间隔（秒） | `5` |
 
 密码/授权码不写在 YAML 中，需在 `.env` 中设置 `EMAIL_PASSWORD`（或通过 notifier 的 `password_env_key` 指定其它 key）。
 
@@ -104,7 +112,7 @@
 
 | 键 | 说明 | 默认 |
 |----|------|------|
-| `auto_update_after_batch` | 每批归档后是否自动将 3_待人工 追加到 for_labeling | `true` |
+| `auto_update_after_batch` | 每批归档后是否自动将 inspection 追加到 for_labeling | `true` |
 
 ---
 
@@ -119,7 +127,19 @@
 
 ---
 
-## 9. 开机自检与滚动清零（Edge 部署稳定性）
+## 9. 工业级配置（timezone、logging、retry）
+
+| 键 | 说明 | 默认 |
+|----|------|------|
+| `timezone` | 日志、邮件、batch_id 时区 | `America/Toronto` |
+| `logging.max_bytes` | 单日志文件最大字节，超则轮转 | `10485760`（10MB） |
+| `logging.backup_count` | 轮转后保留历史文件数 | `5` |
+| `retry.max_attempts` | 文件移动等操作失败重试次数 | `3` |
+| `retry.backoff_seconds` | 重试间隔基数（秒） | `1.0` |
+
+---
+
+## 10. 开机自检与滚动清零（Edge 部署稳定性）
 
 | 键 | 说明 | 默认 |
 |----|------|------|
@@ -133,13 +153,15 @@
 
 ---
 
-## 10. 默认配置与无 YAML 时行为
+## 11. 默认配置与无 YAML 时行为
 
 若未找到 `config/settings.yaml`，`config_loader.load_config()` 会使用 `_default_config(base_dir)`，其路径与上述默认值一致（paths 指向 `storage/` 与 `db/`）。因此即使没有 YAML，启动也会使用合理默认值。
 
 ---
 
-## 11. 在代码中读取配置
+## 12. 在代码中读取配置
 
 - **路径**：`config_loader.get_paths(cfg)` 得到已解析为绝对路径的 `paths` 字典。
 - **质检相关**：`config_loader.get_quality_thresholds(cfg)` 得到 `quality_thresholds` 与 `production_setting` 的合并字典，供质检与报告使用。
+- **批次路径**：`config_loader.get_batch_paths(cfg, batch_base)` 得到 qc_dir、source_archive_dir、fuel_dir、human_dir 等。
+- **配置校验**：`config_loader.validate_config(cfg)` 返回错误列表，空表示通过。

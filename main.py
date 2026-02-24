@@ -22,10 +22,10 @@ def main():
     from config import logging as log_config
     from core import pipeline
 
-    log_config.setup_logging(BASE_DIR)
     config_loader.set_base_dir(BASE_DIR)
-    config_loader.init_storage_structure()
     cfg = config_loader.load_config()
+    log_config.setup_logging(BASE_DIR, cfg)
+    config_loader.init_storage_from_config(cfg)
 
     from config import startup
     if cfg.get("startup_self_check", True):
@@ -39,7 +39,9 @@ def main():
     db_path = cfg.get("paths", {}).get("db_file")
     if db_path:
         from engines import db_tools
-        db_tools.init_db(db_path)
+        if not db_tools.init_db(db_path):
+            print("❌ 数据库初始化失败，请检查 db_file 路径与权限。")
+            sys.exit(1)
 
     parser = argparse.ArgumentParser(description="DataFactory 集中质检复核")
     parser.add_argument("--gate", type=float, default=None, help="准入阈值 (%)")

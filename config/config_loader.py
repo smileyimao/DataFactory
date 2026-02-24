@@ -1,9 +1,13 @@
 # config/config_loader.py — 统一配置加载，路径解析为绝对路径
+# 工业级：path decoupling，所有路径/目录名从配置读取，支持 env 覆盖
 import os
 import yaml
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 _DEFAULT_BASE_DIR: Optional[str] = None
+
+# 环境变量覆盖前缀（如 DATA_WAREHOUSE 覆盖 paths.data_warehouse）
+_ENV_PREFIX = "DATAFACTORY_"
 
 
 def set_base_dir(path: str) -> None:
@@ -35,16 +39,32 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     with open(config_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
-    # 解析 paths 为绝对路径
+    # 解析 paths 为绝对路径；支持 env 覆盖（DATAFACTORY_RAW_VIDEO 等）
     paths = data.get("paths", {})
+    _apply_env_overrides(paths)
+    _path_resolve_skip = frozenset({"batch_subdirs", "batch_prefix", "batch_fails_suffix", "ensure_dirs", "dashboard_port"})
     for key in list(paths.keys()):
+        if key in _path_resolve_skip:
+            continue
         p = paths[key]
         if isinstance(p, str) and not os.path.isabs(p):
             paths[key] = os.path.join(base, p)
+    # batch_subdirs 保持相对名（不解析为绝对路径），合并 YAML 与默认
+    defaults = {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection"}
+    paths["batch_subdirs"] = {**defaults, **(paths.get("batch_subdirs") or {})}
+    paths.setdefault("batch_prefix", "Batch_")
+    paths.setdefault("batch_fails_suffix", "_Fails")
+    paths.setdefault("ensure_dirs", [
+        "raw_video", "data_warehouse", "rejected_material", "redundant_archives",
+        "reports", "labeling_export", "labeled_return", "training", "golden",
+        "pending_review", "logs",
+    ])
     data["paths"] = paths
     data["_base_dir"] = base
     if "golden" not in data["paths"]:
         data["paths"]["golden"] = os.path.join(base, "storage", "golden")
+    if "pending_review" not in data["paths"]:
+        data["paths"]["pending_review"] = os.path.join(base, "storage", "pending_review")
     # 开机自检与滚动清零、黄金库默认值（YAML 可覆盖）
     if "startup_self_check" not in data:
         data["startup_self_check"] = True
@@ -91,18 +111,99 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     data["production_setting"].setdefault("human_review_flat", True)
     data.setdefault("labeling_pool", {})
     data["labeling_pool"].setdefault("auto_update_after_batch", True)
+    data.setdefault("retry", {"max_attempts": 3, "backoff_seconds": 1.0})
+    data.setdefault("timezone", "America/Toronto")
+    data.setdefault("logging", {"max_bytes": 10 * 1024 * 1024, "backup_count": 5})
+    ec = data.setdefault("email_setting", {})
+    ec.setdefault("max_retries", 3)
+    ec.setdefault("retry_delay_seconds", 5)
     return data
+
+
+def _apply_env_overrides(paths: Dict[str, Any]) -> None:
+    """环境变量覆盖 paths 中字符串值。DATAFACTORY_RAW_VIDEO -> paths.raw_video。"""
+    for key in list(paths.keys()):
+        if key.startswith("_") or key in ("batch_subdirs", "ensure_dirs", "batch_prefix", "batch_fails_suffix", "dashboard_port"):
+            continue
+        env_key = _ENV_PREFIX + key.upper().replace(".", "_")
+        val = os.environ.get(env_key)
+        if val is not None:
+            paths[key] = val
+
+
+def get_batch_paths(cfg: Dict[str, Any], batch_base: str) -> Dict[str, str]:
+    """
+    根据配置生成批次目录路径（path decoupling）。
+    返回 qc_dir, source_archive_dir, fuel_dir, human_dir, mass_dir 等。
+    """
+    sub = cfg.get("paths", {}).get("batch_subdirs", {})
+    return {
+        "qc_dir": os.path.join(batch_base, sub.get("reports", "reports")),
+        "source_archive_dir": os.path.join(batch_base, sub.get("source", "source")),
+        "fuel_dir": os.path.join(batch_base, sub.get("refinery", "refinery")),
+        "human_dir": os.path.join(batch_base, sub.get("inspection", "inspection")),
+        "mass_dir": os.path.join(batch_base, sub.get("refinery", "refinery")),
+    }
+
+
+def get_batch_media_subdirs(cfg: Dict[str, Any]) -> tuple:
+    """
+    返回扫描媒体文件时需遍历的批次子目录名（含兼容旧版）。
+    供 labeling_export.list_batch_media 使用。
+    """
+    sub = cfg.get("paths", {}).get("batch_subdirs", {})
+    current = [sub.get("refinery", "refinery"), sub.get("inspection", "inspection"), sub.get("source", "source")]
+    legacy = ("2_高置信_燃料", "3_待人工", "2_Mass_Production")
+    return tuple(current) + legacy
+
+
+def get_batch_prefix(cfg: Dict[str, Any]) -> str:
+    """批次目录前缀，如 Batch_。"""
+    return cfg.get("paths", {}).get("batch_prefix", "Batch_")
+
+
+def get_batch_fails_suffix(cfg: Dict[str, Any]) -> str:
+    """废片目录后缀，如 _Fails。"""
+    return cfg.get("paths", {}).get("batch_fails_suffix", "_Fails")
+
+
+def get_pending_queue_path(cfg: Dict[str, Any]) -> str:
+    """待复核队列 JSON 文件路径。"""
+    pending = cfg.get("paths", {}).get("pending_review", "")
+    return os.path.join(pending, "queue.json")
+
+
+def get_pending_thumbs_dir(cfg: Dict[str, Any]) -> str:
+    """待复核队列缩略图目录。"""
+    pending = cfg.get("paths", {}).get("pending_review", "")
+    return os.path.join(pending, "thumbs")
 
 
 def init_storage_structure(base_dir: Optional[str] = None) -> None:
     """
-    启动时确保 storage/ 与 db/ 目录存在，避免运行时路径缺失。
+    启动时确保 storage/ 与 db/ 目录存在（兼容旧逻辑，无 config 时使用默认路径）。
     若 base_dir 未传则使用 get_base_dir()。
     """
     base = base_dir if base_dir is not None else get_base_dir()
     for sub in ("storage/raw", "storage/archive", "storage/rejected", "storage/redundant", "storage/test", "storage/reports", "storage/for_labeling", "storage/golden", "storage/pending_review", "storage/labeled_return", "storage/training", "db"):
         d = os.path.join(base, sub)
         os.makedirs(d, exist_ok=True)
+
+
+def init_storage_from_config(cfg: Dict[str, Any]) -> None:
+    """
+    根据配置确保 paths 中目录存在（工业级：path decoupling）。
+    应在 load_config 之后调用。
+    """
+    paths = cfg.get("paths", {})
+    ensure_keys = paths.get("ensure_dirs", [])
+    for key in ensure_keys:
+        p = paths.get(key)
+        if p and isinstance(p, str):
+            os.makedirs(p, exist_ok=True)
+    db_path = paths.get("db_file")
+    if db_path:
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
 
 def _default_config(base_dir: str) -> Dict[str, Any]:
@@ -119,8 +220,13 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "labeled_return": os.path.join(base_dir, "storage", "labeled_return"),
             "training": os.path.join(base_dir, "storage", "training"),
             "golden": os.path.join(base_dir, "storage", "golden"),
+            "pending_review": os.path.join(base_dir, "storage", "pending_review"),
             "logs": os.path.join(base_dir, "logs"),
             "db_file": os.path.join(base_dir, "db", "factory_admin.db"),
+            "batch_prefix": "Batch_",
+            "batch_fails_suffix": "_Fails",
+            "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection"},
+            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "pending_review", "logs"],
         },
         "ingest": {
             "batch_wait_seconds": 8,
@@ -178,6 +284,45 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
 def get_paths(cfg: Dict[str, Any]) -> Dict[str, str]:
     """从已加载配置中取出 paths（绝对路径）。"""
     return cfg.get("paths", {})
+
+
+def validate_config(cfg: Dict[str, Any]) -> List[str]:
+    """
+    校验配置完整性与范围，返回错误列表（空表示通过）。
+    P1：校验 min<max、gate∈[0,100]、双门槛一致性。
+    """
+    errs = []
+    paths = cfg.get("paths", {})
+    required = ["raw_video", "data_warehouse", "db_file", "rejected_material", "redundant_archives"]
+    for k in required:
+        if not paths.get(k):
+            errs.append(f"paths.{k} 未配置")
+    sub = paths.get("batch_subdirs", {})
+    for k in ("reports", "source", "refinery", "inspection"):
+        if not sub.get(k):
+            errs.append(f"paths.batch_subdirs.{k} 未配置")
+
+    # 质检阈值范围
+    qt = cfg.get("quality_thresholds", {})
+    min_br, max_br = qt.get("min_brightness"), qt.get("max_brightness")
+    if min_br is not None and max_br is not None and float(min_br) >= float(max_br):
+        errs.append("quality_thresholds: min_brightness 应小于 max_brightness")
+    min_ct, max_ct = qt.get("min_contrast"), qt.get("max_contrast")
+    if min_ct is not None and max_ct is not None and float(min_ct) >= float(max_ct):
+        errs.append("quality_thresholds: min_contrast 应小于 max_contrast")
+
+    # 准入线范围
+    ps = cfg.get("production_setting", {})
+    gate = ps.get("pass_rate_gate")
+    if gate is not None and (float(gate) < 0 or float(gate) > 100):
+        errs.append("production_setting.pass_rate_gate 应在 [0, 100]")
+
+    # 双门槛一致性
+    dh, dl = ps.get("dual_gate_high"), ps.get("dual_gate_low")
+    if dh is not None and dl is not None and float(dh) <= float(dl):
+        errs.append("production_setting: dual_gate_high 应大于 dual_gate_low")
+
+    return errs
 
 
 def get_quality_thresholds(cfg: Dict[str, Any]) -> Dict[str, Any]:

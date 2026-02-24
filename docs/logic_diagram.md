@@ -60,7 +60,7 @@ flowchart TB
     subgraph qc["2. QC 质检"]
         Q1[指纹采集 MD5]
         Q2[质量检测 + 重复检测]
-        Q3[源文件移入 Batch/0_Source_Video]
+        Q3[源文件移入 Batch/source]
         Q4[建 qc_archive + 发汇总邮件]
         Q1 --> Q2 --> Q3 --> Q4
     end

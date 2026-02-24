@@ -8,7 +8,7 @@ import shutil
 import zipfile
 import logging
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from core import time_utils
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ YOLO_LINE_LEN = 5  # class_id x_center y_center w h
 
 
 def _toronto_now() -> str:
-    return datetime.now(ZoneInfo("America/Toronto")).strftime("%Y%m%d_%H%M%S")
+    return time_utils.now_toronto().strftime("%Y%m%d_%H%M%S")
 
 
 def parse_yolo_txt(txt_path: str) -> List[Tuple[int, float, float, float, float]]:

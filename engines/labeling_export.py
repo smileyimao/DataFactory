@@ -17,16 +17,16 @@ logger = logging.getLogger(__name__)
 MEDIA_EXT = {".mp4", ".mov", ".avi", ".mkv", ".jpg", ".jpeg", ".png", ".bmp"}
 
 
-# 产出子目录：按置信分层（2_高置信_燃料、3_待人工）或旧版单一 2_Mass_Production
-OUTPUT_SUBDIRS = ("2_高置信_燃料", "3_待人工", "2_Mass_Production")
-
-
-def list_batch_media(batch_dir: str) -> List[Dict[str, Any]]:
-    """扫描 Batch 目录下产出子目录（2_高置信_燃料、3_待人工、2_Mass_Production）及 1_QC 中的媒体文件。
+def list_batch_media(batch_dir: str, media_subdirs: Optional[tuple] = None, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """扫描 Batch 目录下产出子目录中的媒体文件。media_subdirs 或 cfg 二选一，cfg 时从 config 读取。
     支持两种结构：1) 子目录内直接 .jpg/.png；2) 子目录内 Normal/、Warning/ 含媒体文件。"""
+    if media_subdirs is None and cfg is not None:
+        from config import config_loader
+        media_subdirs = config_loader.get_batch_media_subdirs(cfg)
+    if media_subdirs is None:
+        media_subdirs = ("refinery", "inspection", "source", "2_高置信_燃料", "3_待人工", "2_Mass_Production")
     out = []
-    qc_sub = "1_QC" if os.path.isdir(os.path.join(batch_dir, "1_QC")) else "1_Pilot_Room"
-    for sub in OUTPUT_SUBDIRS + (qc_sub,):
+    for sub in media_subdirs:
         d = os.path.join(batch_dir, sub)
         if not os.path.isdir(d):
             continue
@@ -53,16 +53,21 @@ def export_manifest_for_labeling(
     archive_dir: str,
     export_dir: str,
     max_batches: Optional[int] = None,
+    cfg: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     扫描 archive_dir 下所有 Batch_* 目录，汇总媒体文件清单，写入 export_dir/manifest_for_labeling.json。
-    返回写入的 manifest 文件路径。
+    返回写入的 manifest 文件路径。cfg 可选，用于 path decoupling。
     """
     os.makedirs(export_dir, exist_ok=True)
+    batch_prefix = "Batch_"
+    if cfg:
+        from config import config_loader
+        batch_prefix = config_loader.get_batch_prefix(cfg)
     batch_dirs = sorted([
         os.path.join(archive_dir, x)
         for x in os.listdir(archive_dir)
-        if os.path.isdir(os.path.join(archive_dir, x)) and x.startswith("Batch_")
+        if os.path.isdir(os.path.join(archive_dir, x)) and x.startswith(batch_prefix)
     ])
     if max_batches is not None:
         batch_dirs = batch_dirs[-max_batches:]
@@ -70,7 +75,7 @@ def export_manifest_for_labeling(
     manifest = []
     for batch_dir in batch_dirs:
         batch_id = os.path.basename(batch_dir)
-        items = list_batch_media(batch_dir)
+        items = list_batch_media(batch_dir, cfg=cfg)
         for item in items:
             item["batch_id"] = batch_id
             manifest.append(item)
@@ -118,7 +123,7 @@ def run_export_from_config(cfg: Dict[str, Any], max_batches: Optional[int] = Non
     export_dir = paths.get("labeling_export")
     if not export_dir or not os.path.isdir(archive):
         return None
-    return export_manifest_for_labeling(archive, export_dir, max_batches=max_batches)
+    return export_manifest_for_labeling(archive, export_dir, max_batches=max_batches, cfg=cfg)
 
 
 def _collect_media_from_dir(dir_path: str) -> List[Dict[str, Any]]:
@@ -140,7 +145,7 @@ def _collect_media_from_dir(dir_path: str) -> List[Dict[str, Any]]:
 
 def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> Optional[str]:
     """
-    待标池自动更新：本批次 3_待人工 的媒体文件追加到 for_labeling，并合并 manifest。
+    待标池自动更新：本批次 inspection 的媒体文件追加到 for_labeling，并合并 manifest。
     若配置 labeling_pool.auto_update_after_batch 为 false 则跳过。
     返回 manifest 路径或 None。
     """
@@ -189,16 +194,17 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
                 shutil.copy2(txt_src, txt_dest)
             except OSError as e:
                 logger.warning("拷贝 txt 失败 %s -> %s: %s", txt_src, txt_dest, e)
+        subdir = cfg.get("paths", {}).get("batch_subdirs", {}).get("inspection", "inspection")
         existing.append({
             "path": dest_path,
             "relative_path": f"images/{dest_name}",
             "filename": filename,
-            "subdir": "3_待人工",
+            "subdir": subdir,
             "batch_id": batch_id,
         })
     if added > 0:
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
-        logger.info("待标池自动更新: 本批 3_待人工 追加 %d 条 -> %s", added, manifest_path)
+        logger.info("待标池自动更新: 本批 inspection 追加 %d 条 -> %s", added, manifest_path)
         return manifest_path
     return None

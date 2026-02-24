@@ -6,17 +6,13 @@ import tempfile
 import logging
 from collections import defaultdict
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Tuple
 
 from config import config_loader
-from engines import fingerprinter, db_tools, notifier, production_tools, vision_detector, report_tools
+from core import time_utils
+from engines import fingerprinter, db_tools, notifier, production_tools, vision_detector, report_tools, retry_utils
 
 logger = logging.getLogger(__name__)
-
-
-def now_toronto() -> datetime:
-    return datetime.now(ZoneInfo("America/Toronto"))
 
 
 def run_qc(
@@ -42,15 +38,16 @@ def run_qc(
         dual_high = float(dual_high)
         dual_low = float(dual_low)
 
-    batch_id = now_toronto().strftime("%Y%m%d_%H%M%S")
-    batch_base = os.path.join(warehouse, f"Batch_{batch_id}")
-    # 质量报告统一放在本批次文件夹内，打开批次即可看到
-    report_dir = os.path.join(batch_base, "_reports")
+    batch_id = time_utils.now_toronto(cfg).strftime("%Y%m%d_%H%M%S")
+    batch_prefix = config_loader.get_batch_prefix(cfg)
+    batch_base = os.path.join(warehouse, f"{batch_prefix}{batch_id}")
+    bp = config_loader.get_batch_paths(cfg, batch_base)
+    report_dir = bp["qc_dir"]
+    source_archive_dir = bp["source_archive_dir"]
+    mass_dir = bp["mass_dir"]
+    fuel_dir = bp["fuel_dir"]
+    human_dir = bp["human_dir"]
     os.makedirs(report_dir, exist_ok=True)
-    source_archive_dir = os.path.join(batch_base, "0_Source_Video")
-    mass_dir = os.path.join(batch_base, "2_Mass_Production")
-    fuel_dir = os.path.join(batch_base, "2_高置信_燃料")
-    human_dir = os.path.join(batch_base, "3_待人工")
 
     path_to_md5: Dict[str, str] = {}
     for v in video_paths:
@@ -81,62 +78,61 @@ def run_qc(
     else:
         print("  （无重复）")
 
-    # 抽检用临时目录，不保留 1_QC
+    # 抽检用临时目录，P2：TemporaryDirectory 上下文管理器，异常时自动清理
     results: List[Dict[str, Any]] = []
     vision_model_load_failed = False  # 若配置开启但模型未加载成功，用于邮件标红提醒
-    temp_qc = tempfile.mkdtemp(prefix="datafactory_qc_")
-    try:
-        print(f"\n🚀 [质检] 批次: {batch_id} | 质量检测（抽检 {qc_sample_seconds}s/视频）")
-        # 质量要求清单（与 quality_tools 判定一致）
-        print("  质量要求清单:")
-        print(f"    亮度 brightness: {qc_cfg.get('min_brightness', 55)} ~ {qc_cfg.get('max_brightness', 225)} （低于下限→太暗 Too Dark，高于上限→过曝 Harsh Light）")
-        print(f"    模糊 blur: 不低于 {qc_cfg.get('min_blur_score', 20)} （低于→Blurry）")
-        print(f"    抖动 jitter: 不高于 {qc_cfg.get('max_jitter', 35)} （高于→High Jitter）")
-        print(f"    对比度 contrast: {qc_cfg.get('min_contrast', 15)} ~ {qc_cfg.get('max_contrast', 100)} （低于→Low Contrast，高于→High Contrast）")
-        # 本批次视觉检测：是否开启、模型、版本（打印到控制台并写入运行日志）
-        vision_cfg = cfg.get("vision") or {}
-        vision_enabled = vision_detector.is_enabled(cfg)
-        vision_model_path = (vision_cfg.get("model_path") or "").strip() or "未配置"
-        vision_model = vision_detector.get_model(cfg) if vision_enabled else None
-        vision_model_load_failed = vision_enabled and (vision_model is None)
-        vision_version = vision_detector.get_vision_model_version(cfg) or (cfg.get("version_mapping") or {}).get("vision_model_version") or "—"
-        vision_status = "已开启" if vision_enabled else "未开启"
-        print(f"  本批次视觉检测: {vision_status} | 模型: {vision_model_path} | 版本: {vision_version}")
-        if vision_model_load_failed:
-            load_reason = (vision_detector.get_vision_load_error() or "未知原因").strip()
-            print(f"  [运行日志] ⚠️ 视觉模型未成功加载，本批次未进行智能检测。原因: {load_reason}")
-            logger.warning("批次 %s 视觉模型未成功加载 (model_path=%s)，原因: %s，本批次未进行智能检测", batch_id, vision_model_path, load_reason)
-        logger.info(
-            "批次 %s 视觉检测 enabled=%s model_path=%s version=%s load_ok=%s",
-            batch_id, vision_enabled, vision_model_path, vision_version, not vision_model_load_failed,
-        )
-        if paths_need_sample:
-            production_tools.run_production(
-                paths_need_sample, temp_qc, batch_id, cfg, limit_seconds=qc_sample_seconds, reports_archive_dir=report_dir
+    with tempfile.TemporaryDirectory(prefix="datafactory_qc_") as temp_qc:
+        try:
+            print(f"\n🚀 [质检] 批次: {batch_id} | 质量检测（抽检 {qc_sample_seconds}s/视频）")
+            # 质量要求清单（与 quality_tools 判定一致）
+            print("  质量要求清单:")
+            print(f"    亮度 brightness: {qc_cfg.get('min_brightness', 55)} ~ {qc_cfg.get('max_brightness', 225)} （低于下限→太暗 Too Dark，高于上限→过曝 Harsh Light）")
+            print(f"    模糊 blur: 不低于 {qc_cfg.get('min_blur_score', 20)} （低于→Blurry）")
+            print(f"    抖动 jitter: 不高于 {qc_cfg.get('max_jitter', 35)} （高于→High Jitter）")
+            print(f"    对比度 contrast: {qc_cfg.get('min_contrast', 15)} ~ {qc_cfg.get('max_contrast', 100)} （低于→Low Contrast，高于→High Contrast）")
+            # 本批次视觉检测：是否开启、模型、版本（打印到控制台并写入运行日志）
+            vision_cfg = cfg.get("vision") or {}
+            vision_enabled = vision_detector.is_enabled(cfg)
+            vision_model_path = (vision_cfg.get("model_path") or "").strip() or "未配置"
+            vision_model = vision_detector.get_model(cfg) if vision_enabled else None
+            vision_model_load_failed = vision_enabled and (vision_model is None)
+            vision_version = vision_detector.get_vision_model_version(cfg) or (cfg.get("version_mapping") or {}).get("vision_model_version") or "—"
+            vision_status = "已开启" if vision_enabled else "未开启"
+            print(f"  本批次视觉检测: {vision_status} | 模型: {vision_model_path} | 版本: {vision_version}")
+            if vision_model_load_failed:
+                load_reason = (vision_detector.get_vision_load_error() or "未知原因").strip()
+                print(f"  [运行日志] ⚠️ 视觉模型未成功加载，本批次未进行智能检测。原因: {load_reason}")
+                logger.warning("批次 %s 视觉模型未成功加载 (model_path=%s)，原因: %s，本批次未进行智能检测", batch_id, vision_model_path, load_reason)
+            logger.info(
+                "批次 %s 视觉检测 enabled=%s model_path=%s version=%s load_ok=%s",
+                batch_id, vision_enabled, vision_model_path, vision_version, not vision_model_load_failed,
             )
-        else:
-            with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
-                json.dump([], f, ensure_ascii=False)
-            print("  （本批次均为重复，已跳过抽检）")
+            if paths_need_sample:
+                production_tools.run_production(
+                    paths_need_sample, temp_qc, batch_id, cfg, limit_seconds=qc_sample_seconds, reports_archive_dir=report_dir
+                )
+            else:
+                with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
+                    json.dump([], f, ensure_ascii=False)
+                print("  （本批次均为重复，已跳过抽检）")
 
-        os.makedirs(source_archive_dir, exist_ok=True)
-        for v_path in video_paths:
-            dest = os.path.join(source_archive_dir, os.path.basename(v_path))
-            try:
-                logger.info("Moving [%s] to [%s] due to [Batch archive 0_Source_Video]", os.path.basename(v_path), os.path.abspath(dest))
-                shutil.move(v_path, dest)
-                print(f"📦 [归档成功]: {os.path.basename(v_path)} -> 0_Source_Video")
-            except Exception as e:
-                logger.exception("归档失败: %s -> %s", v_path, e)
-                print(f"⚠️ [归档失败]: {v_path} -> {e}")
+            os.makedirs(source_archive_dir, exist_ok=True)
+            retry_cfg = cfg.get("retry", {})
+            max_attempts = retry_cfg.get("max_attempts", 3)
+            backoff = retry_cfg.get("backoff_seconds", 1.0)
+            for v_path in video_paths:
+                dest = os.path.join(source_archive_dir, os.path.basename(v_path))
+                logger.info("Moving [%s] to [%s] due to [Batch archive source]", os.path.basename(v_path), os.path.abspath(dest))
+                if retry_utils.safe_move_with_retry(v_path, dest, max_attempts, backoff):
+                    print(f"📦 [归档成功]: {os.path.basename(v_path)} -> source")
+                else:
+                    print(f"⚠️ [归档失败]: {v_path}")
 
-        manifest_path = os.path.join(temp_qc, "manifest.json")
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            results = json.load(f)
-    except Exception as e:
-        logger.exception("抽检/读取 manifest 异常: %s", e)
-    finally:
-        shutil.rmtree(temp_qc, ignore_errors=True)
+            manifest_path = os.path.join(temp_qc, "manifest.json")
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                results.extend(json.load(f))
+        except Exception as e:
+            logger.exception("抽检/读取 manifest 异常: %s", e)
 
     if not results:
         results = []

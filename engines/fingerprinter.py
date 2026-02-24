@@ -1,6 +1,9 @@
-# engines/fingerprinter.py — MD5 指纹，只干活不决策
+# engines/fingerprinter.py — MD5 指纹，只干活不决策（P1：异常打日志，不吞）
 import hashlib
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def compute(file_path: str) -> str:
@@ -18,5 +21,6 @@ def compute(file_path: str) -> str:
             else:
                 hasher.update(f.read())
         return hasher.hexdigest()
-    except Exception:
+    except Exception as e:
+        logger.warning("指纹计算失败: path=%s — %s", file_path, e)
         return ""

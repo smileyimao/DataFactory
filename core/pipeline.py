@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from config import config_loader
 from core import ingest, qc_engine, reviewer, archiver, pending_queue
-from engines import db_tools, labeling_export
+from engines import db_tools, labeling_export, metrics
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +150,7 @@ def run_smart_factory(
     review_mode = cfg.get("review", {}).get("mode", "terminal")
     if blocked:
         if review_mode == "dashboard":
-            base = config_loader.get_base_dir()
-            n = pending_queue.add_items(base, blocked, path_info)
+            n = pending_queue.add_items(cfg, blocked, path_info)
             if n:
                 print(f"📋 [待复核队列] 本批 {n} 项已入队，厂长可打开中控台复核: python -m dashboard.app")
         else:
@@ -163,7 +162,8 @@ def run_smart_factory(
 
     archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
     archiver.archive_produced(cfg, to_fuel, to_human, path_info)
-    # 待标池自动更新：本批 3_待人工 追加到 for_labeling
+    metrics.inc("batch_processed_total")
+    # 待标池自动更新：本批 inspection 追加到 for_labeling
     updated = labeling_export.auto_update_after_batch(cfg, path_info)
     if updated:
         print(f"📋 [待标池] 已自动更新: {updated}")

@@ -5,7 +5,8 @@ import io
 import base64
 import shutil
 from datetime import datetime
-from zoneinfo import ZoneInfo
+
+from core import time_utils
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -81,7 +82,7 @@ def generate_html_report(
         plot_html = _plot_base64(brs, bls, save_path=chart_save_path)
     else:
         plot_html = "<p>无亮度/模糊数据，跳过图表。</p>"
-    ts = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+    ts = time_utils.now_toronto().strftime("%Y-%m-%d %H:%M:%S")
     html_content = f"""
 <html>
 <head><meta charset="UTF-8"><title>Datafactory Quality Report</title>
@@ -146,7 +147,7 @@ def generate_batch_industrial_report(
     返回写入路径。
     """
     os.makedirs(qc_dir, exist_ok=True)
-    ts = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+    ts = time_utils.now_toronto().strftime("%Y-%m-%d %H:%M:%S")
     total = len(qc_archive)
     n_qualified = len(qualified)
     n_blocked = len(blocked)
@@ -269,7 +270,7 @@ def generate_vision_report(
     返回写入路径。
     """
     os.makedirs(qc_dir, exist_ok=True)
-    ts = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+    ts = time_utils.now_toronto().strftime("%Y-%m-%d %H:%M:%S")
     version_line = ""
     if version_info:
         version_line = f"<p>视觉模型: {version_info.get('vision_model_version', '-')}</p>"

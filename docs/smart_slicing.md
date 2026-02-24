@@ -30,7 +30,7 @@
 | `production_setting.save_only_screened` | `true` = 只落盘「Warning 或 有 YOLO 检测」的帧；`false` = 原行为（Normal/Warning 全写） | `false` |
 
 - **QC 阶段**（抽检若干秒）：无 YOLO 检测结果时，`save_only_screened=true` 时只写 **Warning** 帧，Normal 不写盘，manifest/报告仍含全部抽检帧。
-- **量产阶段**（2_高置信_燃料 / 3_待人工）：有 YOLO 检测结果时，只写 **Warning 或 该帧有检测** 的帧；Normal 且无检测不写盘。
+- **量产阶段**（refinery / inspection）：有 YOLO 检测结果时，只写 **Warning 或 该帧有检测** 的帧；Normal 且无检测不写盘。
 
 ---
 

@@ -134,7 +134,10 @@ def run_guard() -> None:
     cfg = config_loader.load_config()
     db_path = cfg.get("paths", {}).get("db_file", "")
     if db_path:
-        db_tools.init_db(db_path)
+        if not db_tools.init_db(db_path):
+            print("❌ 数据库初始化失败，请检查 db_file 路径与权限。")
+            import sys
+            sys.exit(1)
     watch_path = cfg.get("paths", {}).get("raw_video", "")
     if not os.path.exists(watch_path):
         os.makedirs(watch_path)

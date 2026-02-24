@@ -29,12 +29,14 @@ def run_production(
     reports_archive_dir: Optional[str] = None,
     detections_by_video: Optional[Dict[str, Dict[int, List[Dict[str, Any]]]]] = None,
     use_flat_output: bool = False,
+    skip_html_report: bool = False,
 ) -> int:
     """
     对每段视频按秒抽帧，做质量分析（工具层 raw + 决策层 env），写 Normal/Warning 图、manifest、报告。
     若传入 detections_by_video（video basename -> {frame_idx -> [bbox]}），则对每张写出的小图写同名 .txt 伪标签（YOLO 格式）。
     当 production_setting.save_only_screened=true 时，只落盘「质量异常(Warning) 或 该帧有 YOLO 检测」的帧，减少傻大粗全量切片。
-    use_flat_output=True 时（3_待人工精简）：不建 Normal/Warning 子目录，所有图+txt 直接写 target_dir，便于 for_labeling 导入。
+    use_flat_output=True 时：不建 Normal/Warning 子目录，所有图+txt 直接写 target_dir（refinery、inspection）。
+    skip_html_report=True 时：不写 quality_report.html（燃料目录只保留 manifest+图+txt，直接反哺模型）。
     cfg 需含 quality_thresholds + production_setting。
     返回总采样帧数。
     """
@@ -114,14 +116,17 @@ def run_production(
 
     try:
         report_tools.generate_json_manifest(all_stats, target_dir)
-        warning_list = [x for x in all_stats if x.get("env") != "Normal"]
-        report_tools.generate_json_manifest(warning_list, target_dir, filename="warning_list.json")
-        mode = "QC" if limit_seconds else "Production"
-        gate = qc_cfg.get("pass_rate_gate", 80.0)
-        report_tools.generate_html_report(
-            all_stats, target_dir, batch_id, mode, pass_rate_gate=gate, copy_to_dir=reports_archive_dir
-        )
-        print("✅ [产线日志] 数字化清单与质量报告已生成完毕。")
+        if not skip_html_report:
+            warning_list = [x for x in all_stats if x.get("env") != "Normal"]
+            report_tools.generate_json_manifest(warning_list, target_dir, filename="warning_list.json")
+            mode = "QC" if limit_seconds else "Production"
+            gate = qc_cfg.get("pass_rate_gate", 80.0)
+            report_tools.generate_html_report(
+                all_stats, target_dir, batch_id, mode, pass_rate_gate=gate, copy_to_dir=reports_archive_dir
+            )
+            print("✅ [产线日志] 数字化清单与质量报告已生成完毕。")
+        else:
+            print("✅ [产线日志] 数字化清单已生成（燃料目录，无报告）。")
     except Exception as e:
         print(f"⚠️ [产线告警] 报告生成环节出现异常，但图片分拣已完成: {e}")
     return len(all_stats)

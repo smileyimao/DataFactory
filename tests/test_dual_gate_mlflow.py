@@ -147,7 +147,7 @@ def _maybe_log_mlflow(
 def run() -> int:
     from config import config_loader
     from core import archiver
-    from core.qc_engine import now_toronto
+    from core import time_utils
 
     config_loader.set_base_dir(PROJECT_ROOT)
     cfg = config_loader.load_config()
@@ -156,12 +156,12 @@ def run() -> int:
     cfg.setdefault("production_setting", {})["dual_gate_low"] = DUAL_GATE_LOW
     gate = float(cfg.get("production_setting", {}).get("pass_rate_gate", 80.0))
 
-    batch_id = now_toronto().strftime("%Y%m%d_%H%M%S")
+    batch_id = time_utils.now_toronto().strftime("%Y%m%d_%H%M%S")
     with tempfile.TemporaryDirectory(prefix="test_dual_gate_") as tmp:
-        source_archive_dir = os.path.join(tmp, "0_Source_Video")
+        source_archive_dir = os.path.join(tmp, "source")
         rejected_dir = os.path.join(tmp, "rejected")
         redundant_dir = os.path.join(tmp, "redundant")
-        qc_dir = os.path.join(tmp, "1_QC")
+        qc_dir = os.path.join(tmp, "reports")
         os.makedirs(source_archive_dir, exist_ok=True)
         os.makedirs(rejected_dir, exist_ok=True)
         os.makedirs(redundant_dir, exist_ok=True)

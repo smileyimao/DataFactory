@@ -41,6 +41,7 @@ First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 | **v2.x** | YOLO、双门槛、MLflow、按置信分层落盘、伪标签、工业/智能报告 | ✅ |
 | **v2.5** | 3_待人工精简、待标池自动更新、新旧模型对比、厂长中控台、标注回传与伪标签校验 | ✅ |
 | **v2.6** | Smart Ingest：I-帧、运动唤醒、级联检测（四板斧 3/4） | ✅ |
+| **工业级加固** | Path decoupling、P0/P1/P2/P3（重试、DB 错误处理、健康检查、时区/日志/邮件可配置、metrics、配置校验） | ✅ |
 | **v3** | Edge、LiDAR、多节点、特征前置+按需回传 | 设计完成，待实现 |
 
 ---
@@ -92,8 +93,8 @@ Current code covers **v1.x** through **v2.6** (Smart Ingest). Next target: **v3*
 
 | Feature | Description |
 |--------|-------------|
-| **3_待人工精简** | `human_review_flat=true`: Normal/Warning 合并，只保留 manifest+图+txt，便于 for_labeling 导入。 |
-| **待标池自动更新** | `labeling_pool.auto_update_after_batch=true`: 每批归档后自动将 3_待人工 追加到 for_labeling。 |
+| **inspection 精简** | `human_review_flat=true`: Normal/Warning 合并，只保留 manifest+图+txt，便于 for_labeling 导入。 |
+| **待标池自动更新** | `labeling_pool.auto_update_after_batch=true`: 每批归档后自动将 inspection 追加到 for_labeling。 |
 | **新旧模型对比** | `scripts/compare_models.py`: 在相同数据上跑两模型，比较检测结果，写入 MLflow/DB。 |
 | **厂长中控台** | `review.mode=dashboard`: Web 复核，单项/批量放行拒绝，无超时丢料。 |
 | **标注回传与伪标签校验** | `scripts/import_labeled_return.py`: 回传 vs 伪标签 IoU 匹配，一致率门槛报警，达标并入 training。 |
@@ -107,7 +108,23 @@ Current code covers **v1.x** through **v2.6** (Smart Ingest). Next target: **v3*
 | **级联检测** | `vision.cascade_light_model_path`: 轻量模型初筛，有东西才上主模型；空画面被过滤。 |
 | **Embedding/Re-ID** | 待做：向量库检索、“谁在哪儿”报表。 |
 
-Details: **CHANGELOG.md**; roadmap: **docs/Roadmap.md**; settings: **docs/settings_guide.md**.
+### 工业级加固（Path decoupling + Poka yoke）
+
+| 类别 | 要点 |
+|------|------|
+| **Path decoupling** | 批次目录名（reports/source/refinery/inspection）、batch_prefix、batch_fails_suffix 均在 `config/settings.yaml`；改名只改配置。支持 `DATAFACTORY_*` 环境变量覆盖。 |
+| **P0 稳定性** | 文件操作重试（`retry.max_attempts/backoff_seconds`）；DB 异常捕获与日志；`GET /api/health` 健康检查；缩略图路径严格校验防 traversal。 |
+| **P1 可维护性** | 时区配置（`timezone`）；视频扩展名从 config 读取；fingerprinter 异常打日志；`validate_config` 校验 min&lt;max、gate 范围、双门槛；日志 RotatingFileHandler 轮转。 |
+| **P2 可观测性** | `engines/metrics.py` 简单 counters；`GET /api/metrics`；qc_engine 用 TemporaryDirectory 自动清理；邮件发送重试（`max_retries/retry_delay_seconds`）。 |
+| **P3 规范** | `pyproject.toml` black + isort + mypy 配置。 |
+
+**Dashboard API**（中控台 `python -m dashboard.app` 后可用）：
+- `GET /api/health` — 健康检查（DB 连通性、目录可写、配置校验）；异常时 503。
+- `GET /api/metrics` — 简单 counters 快照（batch_processed_total、file_move_errors_total 等），便于监控告警。
+
+**新增模块**：`core/time_utils.py`（时区）、`engines/metrics.py`（counters）、`engines/retry_utils.py`（文件重试）。
+
+详见 **docs/path_decoupling.md**、**docs/industrial_standards.md**；CHANGELOG: **CHANGELOG.md**；roadmap: **docs/Roadmap.md**；settings: **docs/settings_guide.md**.
 
 ---
 
@@ -116,8 +133,8 @@ Details: **CHANGELOG.md**; roadmap: **docs/Roadmap.md**; settings: **docs/settin
 | Layer | Path | Description |
 |-------|------|-------------|
 | Entry | `main.py` | Single run or Guard |
-| Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver |
-| Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, labeling_export, labeled_return |
+| Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver；time_utils（时区） |
+| Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, retry_utils, metrics, labeling_export, labeled_return |
 | Config | `config/` | settings.yaml, config_loader; paths and thresholds |
 | Storage | `storage/` | raw, archive, rejected, redundant, test, reports, for_labeling, labeled_return, training |
 | DB | `db/` | factory_admin.db (production_history, batch_metrics, model_comparison) |
@@ -163,9 +180,12 @@ This pipeline is designed so that **v3-style edge deployment** keeps raw data on
 
 | 模块 | 验证项 |
 |------|--------|
-| 3_待人工精简 | `human_review_flat=true` 时 3_待人工 无 Normal/Warning 子目录，for_labeling 可导入 |
-| 待标池自动更新 | 归档后 for_labeling 自动追加本批 3_待人工，manifest 合并正确 |
+| inspection 精简 | `human_review_flat=true` 时 inspection 无 Normal/Warning 子目录，for_labeling 可导入 |
+| 待标池自动更新 | 归档后 for_labeling 自动追加本批 inspection，manifest 合并正确 |
 | 新旧模型对比 | `compare_models.py` 跑通，MLflow/DB 有记录 |
 | I-帧 | `use_i_frame_only=true` + 有 ffprobe 时只解 I-帧；无 ffprobe 时回退按秒 |
 | 运动唤醒 | `motion_threshold>0` 时静止画面不跑 YOLO，日志有「四板斧过滤」 |
 | 级联检测 | `cascade_light_model_path` 配置时，空画面被轻量模型过滤 |
+| **工业级加固** | `GET /api/health` 返回 200；`GET /api/metrics` 有 counters；`timezone` 改配置后日志时区变化；`validate_config` 非法配置返回错误 |
+
+详见 **docs/testing_and_audit.md**（dry run 说明、流程追踪、阑尾审计）。

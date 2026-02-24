@@ -1,31 +1,51 @@
-# config/logging.py — 应用日志配置（多伦多时区、按日文件）
+# config/logging.py — 应用日志配置（P1 时区+轮转配置驱动）
 import logging
+import logging.handlers
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from typing import Any, Dict, Optional
 
 LOGS_DIR = "logs"
 
 
-class TorontoFormatter(logging.Formatter):
-    """日志时间使用 America/Toronto 时区。"""
+def _get_tz(cfg: Optional[Dict[str, Any]] = None) -> str:
+    """从配置或默认获取时区。"""
+    if cfg:
+        return cfg.get("timezone", "America/Toronto")
+    return "America/Toronto"
+
+
+class _TZFormatter(logging.Formatter):
+    """日志时间使用配置时区。"""
+
+    def __init__(self, tz: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._tz = tz
 
     def formatTime(self, record, datefmt=None):
-        ct = datetime.fromtimestamp(record.created, tz=ZoneInfo("America/Toronto"))
+        try:
+            from zoneinfo import ZoneInfo
+            ct = datetime.fromtimestamp(record.created, tz=ZoneInfo(self._tz))
+        except Exception:
+            ct = datetime.fromtimestamp(record.created)
         if datefmt:
             return ct.strftime(datefmt)
         return ct.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def setup_logging(base_dir: str) -> None:
+def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None) -> None:
     """
-    在 base_dir 下创建 logs/，配置文件日志：INFO 及以上写入 logs/factory_[日期].log。
-    格式：[时间] [级别] [模块] - 消息内容。
+    在 base_dir 下创建 logs/，配置文件日志。P1：RotatingFileHandler 轮转，时区从 cfg 读取。
     """
     base_dir = os.path.abspath(base_dir)
     log_dir = os.path.join(base_dir, LOGS_DIR)
     os.makedirs(log_dir, exist_ok=True)
-    date_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
+    tz = _get_tz(cfg)
+    try:
+        from zoneinfo import ZoneInfo
+        date_str = datetime.now(ZoneInfo(tz)).strftime("%Y-%m-%d")
+    except Exception:
+        date_str = datetime.now().strftime("%Y-%m-%d")
     log_file = os.path.join(log_dir, f"factory_{date_str}.log")
 
     root = logging.getLogger()
@@ -34,7 +54,12 @@ def setup_logging(base_dir: str) -> None:
     for h in root.handlers:
         if getattr(h, "baseFilename", None) == log_file_abs:
             return
-    fh = logging.FileHandler(log_file, encoding="utf-8")
+    lg_cfg = (cfg or {}).get("logging", {})
+    max_bytes = lg_cfg.get("max_bytes", 10 * 1024 * 1024)
+    backup_count = lg_cfg.get("backup_count", 5)
+    fh = logging.handlers.RotatingFileHandler(
+        log_file, encoding="utf-8", maxBytes=max_bytes, backupCount=backup_count
+    )
     fh.setLevel(logging.INFO)
-    fh.setFormatter(TorontoFormatter("[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s"))
+    fh.setFormatter(_TZFormatter(tz, "[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s"))
     root.addHandler(fh)

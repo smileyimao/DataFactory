@@ -1,0 +1,30 @@
+# P3 代码格式化与类型检查（black + isort + mypy）
+[project]
+name = "datafactory"
+version = "2.6"
+description = "工业视频质检流水线"
+requires-python = ">=3.9"
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.venv
+    | legacy
+    | __pycache__
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = [".venv", "legacy", "__pycache__"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

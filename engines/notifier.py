@@ -1,6 +1,7 @@
-# engines/notifier.py — 邮件通知，只发送不决策
+# engines/notifier.py — 邮件通知，只发送不决策（P2：重试配置驱动）
 import os
 import smtplib
+import time
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -50,15 +51,24 @@ def send_mail(
         _attach_file(msg, report_path)
     for path in extra_attachments or []:
         _attach_file(msg, path)
-    try:
-        port = int(email_cfg.get("smtp_port", 587))
-        server = smtplib.SMTP(email_cfg.get("smtp_server", ""), port)
-        server.starttls()
-        server.login(email_cfg.get("sender", ""), auth)
-        server.sendmail(email_cfg.get("sender", ""), [email_cfg.get("receiver", "")], msg.as_string())
-        server.quit()
-        logger.info("邮件已发送至: %s", email_cfg.get("receiver"))
-        return True
-    except Exception as e:
-        logger.exception("邮件发送失败: %s", e)
-        return False
+    max_retries = int(email_cfg.get("max_retries", 1))
+    retry_delay = float(email_cfg.get("retry_delay_seconds", 5))
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            port = int(email_cfg.get("smtp_port", 587))
+            server = smtplib.SMTP(email_cfg.get("smtp_server", ""), port)
+            server.starttls()
+            server.login(email_cfg.get("sender", ""), auth)
+            server.sendmail(email_cfg.get("sender", ""), [email_cfg.get("receiver", "")], msg.as_string())
+            server.quit()
+            logger.info("邮件已发送至: %s", email_cfg.get("receiver"))
+            return True
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                logger.warning("邮件发送失败 (attempt %d/%d)，%s 秒后重试: %s", attempt, max_retries, retry_delay, e)
+                time.sleep(retry_delay)
+            else:
+                logger.exception("邮件发送最终失败 (%d 次尝试): %s", max_retries, e)
+    return False

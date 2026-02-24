@@ -42,8 +42,8 @@
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │  归档 (Archive) [已实现]                                                          │
-│  Batch_xxx/0_Source_Video  源视频  |  Batch_xxx/_reports  质量报告                │
-│  2_高置信_燃料（含伪标签 .txt）  |  3_待人工（按 Batch 可整批拷贝）                 │
+│  Batch_xxx/source  源视频  |  Batch_xxx/reports  质量报告                │
+│  refinery（含伪标签 .txt）  |  inspection（按 Batch 可整批拷贝）                 │
 │  rejected_material/  不合格  |  redundant_archives/  重复                         │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -148,10 +148,10 @@
 **已实现**
 
 - [x] **计算机视觉质检**：YOLO 单例、config 抽帧与推理（conf/iou/device 等全配置化），决策在 qc_engine
-- [x] **版本映射**：Batch_xxx/_reports/version_info.json、path_info.version_mapping，便于血缘与审计
+- [x] **版本映射**：Batch_xxx/reports/version_info.json、path_info.version_mapping，便于血缘与审计
 - [x] **双门槛准入**：dual_gate_high / dual_gate_low；高分放行、低分拦截、中间人工复核
 - [x] **MLflow Tracking**：mlflow.enabled；批次级 params/metrics 记录
-- [x] **按置信分层落盘**：2_高置信_燃料、3_待人工（含 manifest、伪标签 .txt），质量报告在 Batch_xxx/_reports
+- [x] **按置信分层落盘**：refinery、inspection（含 manifest、伪标签 .txt），质量报告在 Batch_xxx/reports
 - [x] **不合格检测可扩展**：quality_tools.register_extra_check，decide_env 统一调度
 
 **待做**
@@ -171,14 +171,14 @@
 
 **已实现**
 
-- [x] **按置信度分流**：与双门槛衔接，高分放行、低分拦截、中间态进 3_待人工
-- [x] **按置信区间落盘**：2_高置信_燃料、3_待人工，带 manifest 与伪标签 .txt
+- [x] **按置信度分流**：与双门槛衔接，高分放行、低分拦截、中间态进 inspection
+- [x] **按置信区间落盘**：refinery、inspection，带 manifest 与伪标签 .txt
 - [x] **高置信伪标签**：燃料与待人工写图时同步写 YOLO 格式 .txt（无检测时写空），便于标注工具一一对应
 - [x] **YOLO 筛查落盘**：`production_setting.save_only_screened=true` 时只落盘「Warning 或 有检测」的帧，减少全量切片（见 docs/smart_slicing.md）
 
 **待做**
 
-- [x] **3_待人工精简**：Normal/Warning 合并，只保留 manifest.json + 图片 + txt，便于 for_labeling 直接导入（`production_setting.human_review_flat=true`）
+- [x] **inspection 精简**：Normal/Warning 合并，只保留 manifest.json + 图片 + txt，便于 for_labeling 直接导入（`production_setting.human_review_flat=true`）
 - [x] **待标池自动生成与更新**：低置信/不确定样本自动写入 for_labeling + manifest，按批次或阈值筛选（`labeling_pool.auto_update_after_batch=true`，归档后自动追加）
 - [x] **新旧模型对比**：新模型与线上/注册模型离线或在线对比，结果入 MLflow/DB，支持上线决策（`scripts/compare_models.py --new X --baseline Y --data DIR`）
 
@@ -188,7 +188,7 @@
 
 **流程**
 
-1. **伪标签抽检**：从 2_高置信_燃料 按比例（如 5%–10%）抽一批样本进入 for_labeling，供标注团队标。
+1. **伪标签抽检**：从 refinery 按比例（如 5%–10%）抽一批样本进入 for_labeling，供标注团队标。
 2. **回传线路**：标注团队完成标注后，一次性传回（YOLO/COCO 等格式），落盘到指定目录（如 `storage/labeled_return/`）。
 3. **一致性对比**：回传标签 vs 伪标签逐图对比（IoU、类别、框数等），计算一致率。
 4. **门槛与报警**：设置差异门槛（如一致率 < 95% 自动报警），要求对差异部分再次复核。
@@ -378,7 +378,7 @@
 | docs/v2_kickoff.md | v2.0 开工说明与里程碑 |
 | docs/architecture_mapping.md | 现状→目标映射、目录结构 |
 | docs/architecture_thinking.md | 依赖注入、接口、状态机等进阶 |
-| docs/batch_output_confidence_tiers.md | 2_高置信_燃料、3_待人工 命名与落盘逻辑 |
+| docs/batch_output_confidence_tiers.md | refinery、inspection 命名与落盘逻辑 |
 
 ---
 

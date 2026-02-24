@@ -13,14 +13,26 @@ from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-VIDEO_EXT = (".mov", ".mp4", ".avi", ".mkv")
+VIDEO_EXT_DEFAULT = (".mov", ".mp4", ".avi", ".mkv")
+
+
+def _get_video_extensions(cfg) -> tuple:
+    """P1：从配置读取视频扩展名，统一入口。"""
+    exts = cfg.get("ingest", {}).get("video_extensions", list(VIDEO_EXT_DEFAULT))
+    return tuple(exts) if exts else VIDEO_EXT_DEFAULT
 
 
 def run_startup_self_check(cfg: Dict[str, Any]) -> bool:
     """
-    开机自检：校验 paths 中关键目录存在且可写，db 父目录可写。
+    开机自检：校验配置完整性、paths 中关键目录可写。
     返回 True 表示通过，False 表示不通过（调用方可 exit(1)）。
     """
+    from config import config_loader
+    errs = config_loader.validate_config(cfg)
+    if errs:
+        for e in errs:
+            logger.error("配置校验失败: %s", e)
+        return False
     paths = cfg.get("paths", {})
     checks = [
         ("raw_video", "原材料目录"),
@@ -69,9 +81,10 @@ def run_golden_run(cfg: Dict[str, Any]) -> bool:
     if not golden_dir or not os.path.isdir(golden_dir):
         logger.info("黄金库自检跳过: 目录不存在或未配置 paths.golden")
         return True
+    exts = _get_video_extensions(cfg)
     candidates = []
     for name in os.listdir(golden_dir):
-        if not any(name.lower().endswith(ext) for ext in VIDEO_EXT):
+        if not any(name.lower().endswith(ext) for ext in exts):
             continue
         path = os.path.join(golden_dir, name)
         if os.path.isfile(path):
@@ -102,7 +115,9 @@ def run_golden_run(cfg: Dict[str, Any]) -> bool:
             run_cfg["email_setting"] = {}
             from engines import db_tools
             from core import qc_engine
-            db_tools.init_db(temp_db)
+            if not db_tools.init_db(temp_db):
+                logger.error("黄金库自检失败: 临时 DB 初始化失败")
+                return False
             qc_archive, _, _, _, _ = qc_engine.run_qc(run_cfg, [dest])
             if not qc_archive:
                 logger.error("黄金库自检失败: QC 未返回任何结果")
@@ -197,8 +212,10 @@ def run_rolling_cleanup(cfg: Dict[str, Any]) -> None:
 
     if archive_days > 0 and archive_dir and os.path.isdir(archive_dir):
         import shutil
+        from config import config_loader
+        batch_prefix = config_loader.get_batch_prefix(cfg)
         removed = 0
-        for path, _ in _list_dirs_older_than(archive_dir, archive_days, "Batch_"):
+        for path, _ in _list_dirs_older_than(archive_dir, archive_days, batch_prefix):
             try:
                 shutil.rmtree(path)
                 removed += 1
