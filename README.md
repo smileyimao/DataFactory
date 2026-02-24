@@ -12,6 +12,16 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 
 *Pipeline • System Guarantees • MLOps — automated data flow from ingest to archive, with reliability and continuous evolution built in.*
 
+### Current system status
+
+| 项目 | 状态 |
+|------|------|
+| **版本** | v2.9（Modality 解耦） |
+| **主流程** | Ingest（预检 dedup + decode）→ Funnel QC（rule + vision）→ Admission（auto-pass + HITL）→ Archive |
+| **Archive 结构** | `Batch_xxx/` 下 reports、source、refinery、inspection |
+| **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
+| **下一目标** | v3：audio/vibration、FFT、predictive maintenance、Edge 部署 |
+
 ---
 
 ## Quick start
