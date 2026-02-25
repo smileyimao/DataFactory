@@ -72,6 +72,9 @@ def health_check():
     status = 200 if not unhealthy else 503
     body = {"status": "healthy" if status == 200 else "unhealthy", "checks": checks}
     return JSONResponse(content=body, status_code=status)
+
+
+@app.get("/", response_class=HTMLResponse)
 def index():
     """中控台首页。"""
     html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
@@ -86,24 +89,6 @@ def get_pending():
     """获取待复核列表。"""
     items = pending_queue.get_all(_CFG)
     return {"items": items, "count": len(items)}
-
-
-@app.post("/api/pending/{item_id}/approve")
-def approve_one(item_id: str):
-    """单项放行。"""
-    ok, err = pending_queue.apply_decision(_CFG, item_id, "approve")
-    if not ok:
-        raise HTTPException(status_code=404, detail=err or "操作失败")
-    return {"ok": True}
-
-
-@app.post("/api/pending/{item_id}/reject")
-def reject_one(item_id: str):
-    """单项拒绝。"""
-    ok, err = pending_queue.apply_decision(_CFG, item_id, "reject")
-    if not ok:
-        raise HTTPException(status_code=404, detail=err or "操作失败")
-    return {"ok": True}
 
 
 class BatchBody(BaseModel):
@@ -122,6 +107,24 @@ def batch_reject(body: BatchBody):
     """批量拒绝。"""
     ok_count, failed = pending_queue.apply_batch_decision(_CFG, body.ids, "reject")
     return {"ok_count": ok_count, "failed": failed}
+
+
+@app.post("/api/pending/{item_id}/approve")
+def approve_one(item_id: str):
+    """单项放行。"""
+    ok, err = pending_queue.apply_decision(_CFG, item_id, "approve")
+    if not ok:
+        raise HTTPException(status_code=404, detail=err or "操作失败")
+    return {"ok": True}
+
+
+@app.post("/api/pending/{item_id}/reject")
+def reject_one(item_id: str):
+    """单项拒绝。"""
+    ok, err = pending_queue.apply_decision(_CFG, item_id, "reject")
+    if not ok:
+        raise HTTPException(status_code=404, detail=err or "操作失败")
+    return {"ok": True}
 
 
 @app.get("/thumbs/{filename}")

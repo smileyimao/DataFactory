@@ -14,6 +14,8 @@ flowchart TD
         MOD[Modality Decoupling]
         MOD --> MOD1[video/audio/vibration]
         MOD --> MOD2[modality_handlers]
+        MOD --> MOD3[Auto-modality v3]
+        MOD --> MOD4[Backward Compat]
         SH[Storage Hierarchy]
         PF[Ingest Pre-Filter]
         PF --> PF1[dedup at ingest]
@@ -30,6 +32,18 @@ flowchart TD
         SH --> SH2[Refinery]
         SH --> SH3[Inspection]
         SH --> SH4[Archive]
+        SH --> SH5[Labeled]
+    end
+
+    subgraph V34[5. v3/v4 演进]
+        AMR[Auto-modality Routing]
+        AMR --> AMR1[detect_modality]
+        AMR --> AMR2[modality_filter]
+        AMR --> AMR3[Backward Compat v3]
+        TS[Temporal Sync v4]
+        TS --> TS1[observed_at]
+        RL[Resource Locking v4]
+        RL --> RL1[gpu/memory/cpu]
     end
 
     subgraph DE[2. Defensive Engineering]
@@ -48,6 +62,13 @@ flowchart TD
         SI --> SI3[Deduplication]
     end
 
+    subgraph ENTRY[Entry & Runtime]
+        M[main.py]
+        M --> M1[单次运行]
+        M --> M2[--guard Watchdog]
+        M --> M3[--test 临时环境]
+    end
+
     subgraph DRP[3. Data Refinery Pipeline]
         SI26[Smart Ingestion v2.6]
         QC[Funnel QC]
@@ -58,6 +79,7 @@ flowchart TD
         QC --> QC1[Dual-Gate Admission]
         QC --> QC2[Vision-Assisted QA]
         QC --> QC3[YOLO metadata]
+        QC --> QC4[放行后按置信度分流]
         HITL --> HITL1[Admission Dashboard]
         HITL --> HITL2[Admission Timeout Guard]
         HITL --> HITL3[No pipeline stalls]
@@ -75,12 +97,15 @@ flowchart TD
         CL --> CL4[Pseudo-label vs human]
         CL --> CL5[Version Mapping]
         CL --> CL6[Data-Code-Model lineage]
+        CL --> CL7[待标池自动更新]
     end
 
+    DF --> ENTRY
     DF --> CI
     DF --> DE
     DF --> DRP
     DF --> MLOps
+    DF --> V34
 ```
 
 
@@ -94,7 +119,7 @@ flowchart TD
 | ------------------------ | ------------------------------------------------------------------------------------------ |
 | **Path Decoupling**      | `config/settings.yaml` paths；`get_batch_paths()`、`get_batch_media_subdirs()`               |
 | **Hardware Abstraction** | 路径集中配置；`DATAFACTORY_RAW_VIDEO` 等 env 覆盖                                                    |
-| **Modality 解耦**           | `config modality`；`modality_handlers.decode_check` 按 modality 分发；v3 扩展 audio/vibration |
+| **Modality 解耦**           | `config modality`；`modality_handlers.decode_check` 按 modality 分发；v3 Auto-modality routing 按文件自动识别并路由 |
 | **Ingest 预检**            | dedup + decode_check（按 modality）；失败项移入 `quarantine/duplicate`、`quarantine/decode_failed` |
 | **SSOT**                 | 批次目录名、前缀、后缀均在 settings.yaml                                                                |
 | **Validation Layer**     | `validate_config()`：min<max、gate 范围、双门槛一致性                                                 |
@@ -129,6 +154,8 @@ flowchart TD
 | **Vision-Assisted QA**      | YOLO 抽帧推理；工业/智能报告                                                    |
 | **Admission Dashboard**     | `dashboard/app.py`；`/api/pending`；approve/reject                     |
 | **Admission Timeout Guard** | `mode=terminal` 时 600s 超时；`mode=dashboard` 无超时丢料                     |
+| **放行后按置信度分流**       | `archiver._split_approved_by_vision_conf()`；`approved_split_confidence_threshold`；高置信 → refinery，低置信 → inspection；vision 未开启则全部 refinery |
+| **Guard 模式**              | `main.py --guard`；`core/guard.py`；Watchdog 监听 raw_video + 轮询兜底；新视频落地 → 等写入稳定 → 凑批送厂；开机扫描存量 |
 
 
 ---
@@ -145,7 +172,31 @@ flowchart TD
 | **Consistency Validation** | `import_labeled_return.py`；IoU 匹配；一致率门槛；达标后 copy_to_batch_labeled 写回 Batch_xxx/labeled（safe_copy 防静默失败） |
 | **Version Mapping**        | `version_info.json`；algorithm_version / vision_model_version |
 | **MLflow 存储**            | `tracking_uri` 默认 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录 |
+| **待标池自动更新**         | `labeling_export.auto_update_after_batch()`；每批归档后自动将 inspection 追加到 for_labeling；`labeling_pool.auto_update_after_batch` 配置 |
 
 ---
 
-*文档版本：v2.9 | 与 README Design philosophy 对应*
+## 5. Entry & Runtime Modes（入口与运行模式）
+
+| 模式 | 命令 | 实现 |
+|------|------|------|
+| **单次运行** | `python main.py` | 扫描 raw_video → 跑 pipeline → 退出 |
+| **Guard 模式** | `python main.py --guard` | `core/guard.py`；Watchdog + 轮询兜底；持续监控 raw，凑批自动送厂 |
+| **测试模式** | `python main.py --test` | 临时目录跑全链路；从 `paths.test_source` 复制到 temp/raw；邮件照发；退出后自动清理，不污染真实 storage/DB |
+
+---
+
+## 6. v3/v4 演进设计（Roadmap）
+
+| 概念 | 版本 | 实现 |
+|------|------|------|
+| **Auto-modality Routing** | v3 | `detect_modality(path)` 按扩展名/内容识别；`modality_filter` 替代 `modality`；按 modality 分组路由 |
+| **Backward Compatibility** | v3 | 旧 `modality: "video"` 等价 `modality_filter: ["video"]`；config_loader 平滑迁移 |
+| **Temporal Sync** | v4 | 入库统一 `observed_at` 字段；多模态时间对齐，支持「10:00 震动 + 10:00 视频」融合分析 |
+| **Resource Locking** | v4 Edge | modality_handlers 声明 `required_resources`（gpu/memory/cpu）；调度层串行/排队防 Edge 跑崩 |
+
+详见 **docs/Roadmap.md**：Auto-modality Routing、阶段三（模型就绪）、阶段四（多模态、Edge）。
+
+---
+
+*文档版本：v2.10 | 补全 Guard、--test、放行分流、待标池自动更新*

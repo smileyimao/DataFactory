@@ -57,7 +57,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     paths.setdefault("ensure_dirs", [
         "raw_video", "data_warehouse", "rejected_material", "redundant_archives",
         "reports", "labeling_export", "labeled_return", "training", "golden",
-        "pending_review", "quarantine", "logs",
+        "test_source", "pending_review", "quarantine", "logs",
     ])
     data["paths"] = paths
     data["_base_dir"] = base
@@ -66,6 +66,8 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         data["paths"]["golden"] = os.path.join(base, "storage", "golden")
     if "pending_review" not in data["paths"]:
         data["paths"]["pending_review"] = os.path.join(base, "storage", "pending_review")
+    if "test_source" not in data["paths"]:
+        data["paths"]["test_source"] = os.path.join(base, "storage", "test", "original")
     # 开机自检与滚动清零、黄金库默认值（YAML 可覆盖）
     if "startup_self_check" not in data:
         data["startup_self_check"] = True
@@ -112,6 +114,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         mf["tracking_uri"] = "sqlite:///" + os.path.join(base, "db", "mlflow.db").replace("\\", "/")
     data.setdefault("production_setting", {})
     data["production_setting"].setdefault("human_review_flat", True)
+    data["production_setting"].setdefault("approved_split_confidence_threshold", 0.6)
     data.setdefault("labeling_pool", {})
     data["labeling_pool"].setdefault("auto_update_after_batch", True)
     data.setdefault("retry", {"max_attempts": 3, "backoff_seconds": 1.0})
@@ -192,7 +195,7 @@ def init_storage_structure(base_dir: Optional[str] = None) -> None:
     若 base_dir 未传则使用 get_base_dir()。
     """
     base = base_dir if base_dir is not None else get_base_dir()
-    for sub in ("storage/raw", "storage/archive", "storage/rejected", "storage/redundant", "storage/test", "storage/reports", "storage/for_labeling", "storage/golden", "storage/pending_review", "storage/labeled_return", "storage/training", "db"):
+    for sub in ("storage/raw", "storage/archive", "storage/rejected", "storage/redundant", "storage/test", "storage/test/original", "storage/reports", "storage/for_labeling", "storage/golden", "storage/pending_review", "storage/labeled_return", "storage/training", "db"):
         d = os.path.join(base, sub)
         os.makedirs(d, exist_ok=True)
 
@@ -235,7 +238,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
             "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"},
-            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "pending_review", "quarantine", "logs"],
+            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "test_source", "pending_review", "quarantine", "logs"],
         },
         "ingest": {
             "batch_wait_seconds": 8,

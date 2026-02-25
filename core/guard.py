@@ -24,9 +24,10 @@ def _list_videos(cfg: dict) -> list:
     return file_tools.list_video_paths(raw, exts)
 
 
-def startup_scan() -> None:
-    """开机扫描：将 raw_video 下存量视频作为一批送入工厂。"""
-    cfg = config_loader.load_config()
+def startup_scan(cfg: dict = None) -> None:
+    """开机扫描：将 raw_video 下存量视频作为一批送入工厂。cfg 未传则从 config_loader 加载。"""
+    if cfg is None:
+        cfg = config_loader.load_config()
     paths = _list_videos(cfg)
     if not paths:
         logger.info("开机自检: 未发现存量视频")
@@ -34,7 +35,7 @@ def startup_scan() -> None:
     logger.info("开机自检: 发现 %d 个存量视频，作为一批送入工厂", len(paths))
     print(f"\n🧹 [开机大扫除] 发现 {len(paths)} 个存量视频，作为一批送入工厂...")
     try:
-        pipeline.run_smart_factory(video_paths=paths)
+        pipeline.run_smart_factory(cfg=cfg, video_paths=paths)
     except Exception as e:
         logger.exception("开机大扫除批处理异常: %s", e)
         print(f"❌ [开机大扫除] 批处理异常: {e}")
@@ -69,8 +70,8 @@ class VideoFolderHandler(FileSystemEventHandler):
     -> 将当前 raw 下全部视频送厂。Watchdog 由 OS 事件驱动，新视频产生即触发，无需轮询。
     """
 
-    def __init__(self):
-        self._cfg = config_loader.load_config()
+    def __init__(self, cfg: dict = None):
+        self._cfg = cfg if cfg is not None else config_loader.load_config()
         self._batch_wait = self._cfg.get("ingest", {}).get("batch_wait_seconds", 8)
         self._watch_path = self._cfg.get("paths", {}).get("raw_video", "")
         self._timer = None
@@ -93,7 +94,7 @@ class VideoFolderHandler(FileSystemEventHandler):
         try:
             print(f"\n📡 [保安报告] 本批共 {len(paths)} 个物料，送入工厂...")
             logger.info("批处理: 本批 %d 个文件送入工厂", len(paths))
-            pipeline.run_smart_factory(video_paths=paths)
+            pipeline.run_smart_factory(cfg=self._cfg, video_paths=paths)
         finally:
             with self._lock:
                 self._processing = False
@@ -128,10 +129,15 @@ def _poll_loop(handler: "VideoFolderHandler", interval: float, stop_event: threa
             logger.exception("轮询兜底异常: %s", e)
 
 
-def run_guard() -> None:
-    """初始化 DB、创建 raw 目录、执行开机扫描、启动 Watchdog + 轮询兜底。"""
+def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
+    """
+    初始化 DB、创建 raw 目录、执行开机扫描、启动 Watchdog + 轮询兜底。
+    cfg 未传则从 config_loader 加载；stop_event 传入时主循环会检查并在 set 后退出（测试用）。
+    """
     from engines import db_tools
-    cfg = config_loader.load_config()
+
+    if cfg is None:
+        cfg = config_loader.load_config()
     db_path = cfg.get("paths", {}).get("db_file", "")
     if db_path:
         if not db_tools.init_db(db_path):
@@ -142,12 +148,12 @@ def run_guard() -> None:
     if not os.path.exists(watch_path):
         os.makedirs(watch_path)
     config_loader.init_storage_from_config(cfg)
-    startup_scan()
+    startup_scan(cfg)
     print("🚀 [DataFactory 自动工厂启动]")
     print(f"📍 监控路径: {os.path.abspath(watch_path)}")
     print("🤖 运行模式: 批处理 → 先检测（质量+重复）→ 一封邮件 → 再逐项询问放行/丢弃")
     observer = Observer()
-    handler = VideoFolderHandler()
+    handler = VideoFolderHandler(cfg)
     observer.schedule(handler, watch_path, recursive=False)
     observer.start()
 
@@ -167,8 +173,12 @@ def run_guard() -> None:
 
     try:
         while True:
-            time.sleep(1)
+            if stop_event and stop_event.is_set():
+                break
+            time.sleep(0.5)
     except KeyboardInterrupt:
+        pass
+    finally:
         poll_stop.set()
         observer.stop()
         print("\n👋 保安已安全下班。")

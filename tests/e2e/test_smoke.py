@@ -1,5 +1,5 @@
 # tests/e2e/test_smoke.py
-"""端到端冒烟测试：QC 全流程，需 storage/test/original/ 下测试视频。"""
+"""端到端冒烟测试：QC 全流程，需 paths.test_source 下测试视频（normal.mov 等）。Path decoupling。"""
 import os
 import shutil
 import sys
@@ -8,14 +8,11 @@ import pytest
 
 pytestmark = pytest.mark.e2e
 
-# 复用 smoke_test 逻辑
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-TEST_ROOT = os.path.join(PROJECT_ROOT, "storage", "test")
-ORIGINAL_DIR = os.path.join(TEST_ROOT, "original")
+VIDEO_EXT = (".mov", ".mp4", ".avi", ".mkv")
 ORIGINAL_VIDEOS = ["normal.mov", "jitter.mov", "black.mov"]
 ORIGINAL_IMAGE = "image.jpg"
-VIDEO_EXT = (".mov", ".mp4", ".avi", ".mkv")
 FINGERPRINT_CHECK_FILES = ["normal.mov", "jitter.mov", "black.mov"]
 EXPECTED = {
     "normal.mov": "PASS",
@@ -28,6 +25,20 @@ EXPECTED = {
 }
 
 
+def _get_test_source(project_root: str) -> str:
+    """从配置读取 paths.test_source，实现 path decoupling。"""
+    from config import config_loader
+
+    config_loader.set_base_dir(project_root)
+    cfg = config_loader.load_config()
+    return cfg.get("paths", {}).get("test_source") or os.path.join(project_root, "storage", "test", "original")
+
+
+def _get_test_root(project_root: str) -> str:
+    """test_source 的父目录，用于生成派生物料。"""
+    return os.path.dirname(_get_test_source(project_root))
+
+
 def _find_original(path_dir: str, name: str) -> str:
     if not os.path.isdir(path_dir):
         return ""
@@ -38,51 +49,56 @@ def _find_original(path_dir: str, name: str) -> str:
     return ""
 
 
-def _ensure_test_data() -> bool:
-    if not os.path.isdir(TEST_ROOT):
-        os.makedirs(TEST_ROOT, exist_ok=True)
-    for name in os.listdir(TEST_ROOT):
+def _ensure_test_data(project_root: str) -> bool:
+    """从 test_source 生成派生物料到 test_root（清空非 original 内容）。"""
+    test_root = _get_test_root(project_root)
+    original_dir = _get_test_source(project_root)
+
+    if not os.path.isdir(test_root):
+        os.makedirs(test_root, exist_ok=True)
+    for name in os.listdir(test_root):
         if name == "original":
             continue
-        path = os.path.join(TEST_ROOT, name)
+        path = os.path.join(test_root, name)
         if os.path.isfile(path):
             os.remove(path)
         elif os.path.isdir(path):
             shutil.rmtree(path)
 
-    if not os.path.isdir(ORIGINAL_DIR):
+    if not os.path.isdir(original_dir):
         return False
-    missing = [f for f in ORIGINAL_VIDEOS + [ORIGINAL_IMAGE] if not _find_original(ORIGINAL_DIR, f)]
+    missing = [f for f in ORIGINAL_VIDEOS + [ORIGINAL_IMAGE] if not _find_original(original_dir, f)]
     if missing:
         pytest.skip(f"原始素材缺失: {missing}，跳过 smoke 测试")
 
     for name in ORIGINAL_VIDEOS:
-        src = _find_original(ORIGINAL_DIR, name)
+        src = _find_original(original_dir, name)
         if src:
-            shutil.copy2(src, os.path.join(TEST_ROOT, name.lower()))
-    src_img = _find_original(ORIGINAL_DIR, ORIGINAL_IMAGE)
+            shutil.copy2(src, os.path.join(test_root, name.lower()))
+    src_img = _find_original(original_dir, ORIGINAL_IMAGE)
     if src_img:
-        shutil.copy2(src_img, os.path.join(TEST_ROOT, "fake_from_img.mov"))
-    src_normal = _find_original(ORIGINAL_DIR, "normal.mov")
+        shutil.copy2(src_img, os.path.join(test_root, "fake_from_img.mov"))
+    src_normal = _find_original(original_dir, "normal.mov")
     if src_normal:
         with open(src_normal, "rb") as f:
             chunk = f.read(1024 * 1024)
-        with open(os.path.join(TEST_ROOT, "incomplete_stream.mov"), "wb") as f:
+        with open(os.path.join(test_root, "incomplete_stream.mov"), "wb") as f:
             f.write(chunk)
-    with open(os.path.join(TEST_ROOT, "zero_byte_video.mov"), "wb") as f:
+    with open(os.path.join(test_root, "zero_byte_video.mov"), "wb") as f:
         f.write(b"")
     if src_normal:
-        shutil.copy2(src_normal, os.path.join(TEST_ROOT, "normal_duplicate.mov"))
+        shutil.copy2(src_normal, os.path.join(test_root, "normal_duplicate.mov"))
     return True
 
 
-def _check_fingerprints():
-    sys.path.insert(0, PROJECT_ROOT)
+def _check_fingerprints(project_root: str) -> None:
+    sys.path.insert(0, project_root)
     from engines import fingerprinter
 
+    test_root = _get_test_root(project_root)
     paths = []
     for name in FINGERPRINT_CHECK_FILES:
-        p = os.path.join(TEST_ROOT, name)
+        p = os.path.join(test_root, name)
         if os.path.isfile(p):
             paths.append((name, p))
     if len(paths) < 2:
@@ -105,10 +121,10 @@ def _actual_category(item) -> str:
 
 
 def test_smoke_qc_full_flow(project_root):
-    """Smoke：QC 全流程，断言 PASS/REVIEW/REJECTED/DUPLICATE。"""
-    if not _ensure_test_data():
+    """Smoke：QC 全流程，断言 PASS/REVIEW/REJECTED/DUPLICATE。路径从 config 读取。"""
+    if not _ensure_test_data(project_root):
         pytest.skip("无法准备测试物料")
-    _check_fingerprints()
+    _check_fingerprints(project_root)
 
     from config import config_loader
     from core import qc_engine
@@ -117,7 +133,7 @@ def test_smoke_qc_full_flow(project_root):
     config_loader.set_base_dir(project_root)
     cfg = config_loader.load_config()
     paths_cfg = cfg.get("paths", {})
-    test_root = os.path.join(project_root, "storage", "test")
+    test_root = _get_test_root(project_root)
 
     with tempfile.TemporaryDirectory(prefix="smoke_test_") as tmp:
         temp_raw = os.path.join(tmp, "raw")

@@ -114,17 +114,20 @@ def _maybe_log_mlflow(
 
 
 def run_smart_factory(
+    cfg: Optional[dict] = None,
     video_paths: Optional[List[str]] = None,
     gate_val: Optional[float] = None,
 ) -> None:
     """
     集中质检复核：获取视频列表 -> QC（指纹+质量检测+建档+邮件）-> 仅对被拦项复核 -> 归档（丢弃+量产+登记）。
+    cfg 若传入则使用该配置（测试模式临时环境）；否则从 config_loader 加载。
     video_paths 若传入则只处理该列表（绝对路径）；否则从 config paths.raw_video 扫描。
     gate_val 覆盖 config 中的 pass_rate_gate。
     """
-    base = config_loader.get_base_dir()
-    config_loader.set_base_dir(base)
-    cfg = config_loader.load_config()
+    if cfg is None:
+        base = config_loader.get_base_dir()
+        config_loader.set_base_dir(base)
+        cfg = config_loader.load_config()
     if gate_val is not None:
         cfg.setdefault("production_setting", {})["pass_rate_gate"] = float(gate_val)
 

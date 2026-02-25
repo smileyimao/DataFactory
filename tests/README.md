@@ -20,7 +20,7 @@ pytest tests/unit/ -v
 # 仅集成
 pytest tests/integration/ -v
 
-# 含 e2e（需 storage/test/original/ 下 normal.mov 等）
+# 含 e2e（需 paths.test_source 下 normal.mov 等，默认 storage/test/original/）
 pytest tests/ -v
 
 # 覆盖率
@@ -33,10 +33,11 @@ pytest tests/ -m "not e2e" --cov=config --cov=core --cov=engines --cov-report=te
 |------|------|
 | `unit/` | 单元：validate_config、decide_env 等 |
 | `integration/` | 集成：双门槛分流、archiver |
-| `e2e/` | 端到端：smoke QC 全流程（需测试视频） |
+| `e2e/` | 端到端：smoke QC、main.py --test 全链路、Guard 模式（需测试视频） |
 | `api/` | API：/api/health、/api/metrics |
 | `fixtures/` | 测试数据占位 |
 
-## 旧脚本
+## 全链路与分块
 
-`smoke_test.py`、`test_dual_gate_mlflow.py` 保留作参考，推荐使用 pytest。
+- **全链路**：`python main.py --test` 在临时环境跑完整 pipeline，不污染真实 storage/DB。
+- **分块**：`tests/` 下 unit、integration、e2e、api 分层测试，路径统一从 config 读取（path decoupling）。

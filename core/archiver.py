@@ -52,6 +52,88 @@ def archive_rejected(
                 print(f"📦 [废片库] {name} -> {new_name}")
 
 
+def _split_approved_by_vision_conf(
+    cfg: dict,
+    items: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Dict[int, List[Dict[str, Any]]]]]:
+    """
+    放行项按 YOLO 置信度分流：高置信 -> refinery，低置信/无检测 -> inspection。
+    若 vision 未开启，全部进 refinery（用户已认可）。
+    返回 (to_fuel, to_human, detections_by_video) 供后续量产复用，避免二次跑 YOLO。
+    """
+    from engines import vision_detector
+    threshold = float(cfg.get("production_setting", {}).get("approved_split_confidence_threshold", 0.6))
+    video_paths = [x["archive_path"] for x in items if os.path.isfile(x.get("archive_path", ""))]
+    empty_dets: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}
+    if not video_paths or not vision_detector.is_enabled(cfg):
+        return list(items), [], empty_dets  # vision 未开启：全部 refinery
+
+    result = vision_detector.run_vision_scan(
+        cfg, video_paths, return_detections=True, sample_seconds_override=1.0,
+    )
+    name_to_max_conf: Dict[str, float] = {}
+    detections_by_video: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}
+    for entry in result:
+        name = entry.get("name", "")
+        dets_map = entry.get("detections_by_frame") or {}
+        detections_by_video[name] = dets_map
+        max_conf = 0.0
+        for frame_dets in dets_map.values():
+            for d in frame_dets:
+                c = d.get("conf", 0.0)
+                if c > max_conf:
+                    max_conf = c
+        name_to_max_conf[name] = max_conf
+
+    to_fuel: List[Dict[str, Any]] = []
+    to_human: List[Dict[str, Any]] = []
+    for item in items:
+        bname = os.path.basename(item.get("archive_path", ""))
+        max_conf = name_to_max_conf.get(bname, 0.0)
+        if max_conf >= threshold:
+            to_fuel.append(item)
+        else:
+            to_human.append(item)
+    return to_fuel, to_human, detections_by_video
+
+
+def archive_approved_items(
+    cfg: dict,
+    items: List[Dict[str, Any]],
+    path_info: Dict[str, Any],
+) -> None:
+    """
+    放行项：先跑 YOLO，按置信度分流到 refinery / inspection，再量产（复用同次 YOLO 结果）。
+    """
+    to_fuel, to_human, detections_by_video = _split_approved_by_vision_conf(cfg, items)
+    if to_fuel or to_human:
+        print(f"   📊 放行项按 YOLO 置信度分流: {len(to_fuel)} → refinery, {len(to_human)} → inspection")
+    batch_id = path_info.get("batch_id", "")
+    tiered = path_info.get("confidence_tiered_output", True)
+    if not tiered:
+        to_fuel = to_fuel + to_human
+        to_human = []
+    os.makedirs(path_info.get("fuel_dir", ""), exist_ok=True)
+    os.makedirs(path_info.get("human_dir", ""), exist_ok=True)
+    if to_fuel:
+        print(f"\n🏭 [阶段 2] refinery（放行高置信，共 {len(to_fuel)} 个文件）...")
+        _run_produce_chunk(
+            cfg, to_fuel, path_info["fuel_dir"], batch_id, "refinery",
+            detections_by_video=detections_by_video if detections_by_video else None,
+            use_flat_output=True, skip_html_report=True,
+        )
+    if to_human:
+        print(f"\n🏭 [阶段 2] inspection（放行待人工，共 {len(to_human)} 个文件）...")
+        human_flat = cfg.get("production_setting", {}).get("human_review_flat", False)
+        _run_produce_chunk(
+            cfg, to_human, path_info["human_dir"], batch_id, "inspection",
+            detections_by_video=detections_by_video if detections_by_video else None,
+            use_flat_output=human_flat,
+        )
+    if to_fuel or to_human:
+        print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")
+
+
 def _get_detections_by_video(
     cfg: dict, video_paths: List[str],
 ) -> Dict[str, Dict[int, List[Dict[str, Any]]]]:

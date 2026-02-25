@@ -82,5 +82,9 @@ def test_db(temp_dir: str) -> str:
 
 @pytest.fixture(scope="session")
 def test_video_root(project_root: str) -> str:
-    """storage/test/original/ 路径，smoke 需此目录下的 normal.mov 等。"""
-    return os.path.join(project_root, "storage", "test", "original")
+    """paths.test_source（测试源目录），smoke 需此目录下的 normal.mov 等。Path decoupling。"""
+    from config import config_loader
+
+    config_loader.set_base_dir(project_root)
+    cfg = config_loader.load_config()
+    return cfg.get("paths", {}).get("test_source") or os.path.join(project_root, "storage", "test", "original")

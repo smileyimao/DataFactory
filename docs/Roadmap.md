@@ -24,6 +24,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │  数据接入 (Ingest)                                                                │
 │  raw_video/  [已实现]     raw_lidar/  [v4 扩展]                                   │
+│  Auto-modality routing  [v3 待做]：按文件格式/内容自动识别 → video/audio/lidar/vibration 分流 │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼
@@ -69,7 +70,7 @@
 | **v2.7** | ✅ 已完成 | 工业级加固：P0/P1/P2/P3、Path decoupling、Batch 重命名 — **Edge 部署前最关键一步** |
 | **v2.8** | ✅ 已完成 | Ingest 预检：dedup + 首帧解码，失败项移入 quarantine — **流程模块化** |
 | **v2.9** | ✅ 已完成 | Modality 解耦；加固：MLflow→db/mlflow.db、labeled 子目录、safe_copy 防静默失败、pytest 套件；根目录清理（mlflow.db、mlruns 等旧产物） |
-| **v3.x** | ⬜ 待做 | **模型就绪**：数据血缘、Transform Log、MLflow 数据→模型追溯；团队可直接跑模型 |
+| **v3.x** | ⬜ 待做 | **模型就绪**：数据血缘、Transform Log、MLflow 数据→模型追溯；**Auto-modality routing**：按文件自动识别并路由 |
 | **v4.x** | ⬜ 待做 | **规模与扩展**：多模态（audio/vibration）、FFT、predictive maintenance、Edge、多节点 |
 
 ---
@@ -88,11 +89,11 @@
 | 单一入口 | main.py（单次 / --guard） | 便于测试与部署 |
 | 启动自检 | startup_self_check | 路径与可写性校验 |
 | 黄金库自检（可选） | startup_golden_run | 真跑一遍 QC 冒烟 |
-| 冒烟测试 | scripts/smoke_test.py | 主流程集成测试 |
+| 冒烟/全链路测试 | pytest tests/e2e/、main.py --test | QC smoke、全链路、Guard 模式 |
 | 单元/集成测试 | pytest tests/ -v -m "not e2e" | unit/integration/api 分层；requirements-dev.txt |
 | 环境可重置 | scripts/reset_factory.py、reset_config.py | dry-run / for-test / db；reset_config 恢复 settings.default.yaml |
 | 版本可追溯 | version_mapping、version_info.json、path_info | 每批规则/模型版本可审计 |
-| **待自动化** | CI 自动跑 pytest、smoke_test、v3 Docker | 当前设计已支持，流水线待接 |
+| **待自动化** | CI 自动跑 pytest、main.py --test、v3 Docker | 当前设计已支持，流水线待接 |
 
 ---
 
@@ -281,6 +282,104 @@
 
 ---
 
+## 🍭 Auto-modality Routing（按文件自动识别与路由）— ⬜ v3 待做
+
+*核心：Ingest 根据文件格式与内容自动判断 modality，无需人工配置；混合数据（视频+音频+LiDAR+振动）一次扫描自动分流。*
+
+### 设计目标
+
+| 当前 | 目标 |
+|------|------|
+| `config modality: video` 人工指定 | 自动检测：扩展名 + 可选内容探测 → 路由到对应通道 |
+| 单一 modality 一批 | 按 modality 分组，每批走各自 QC/Archive handler |
+| 换数据类型需改 config | 零配置：raw 目录混放，自动分流 |
+
+### 实现步骤
+
+#### 1. 识别方式（非指纹）
+
+**不用指纹**：指纹（MD5）用于去重（内容身份），不用于格式识别。Modality 识别用：
+
+| 层级 | 手段 | 说明 |
+|------|------|------|
+| **扩展名** | 主判据，O(1) | .mp4→video、.wav→audio、.pcd→lidar、.csv→vibration |
+| **Magic bytes** | 可选，读文件头 | .bin 区分 lidar 点云 vs 振动二进制；避免误判 |
+| **内容探测** | 可选 | .mp4 用 ffprobe 查 stream 类型（video vs 纯音频）；.csv 读表头判断列含义 |
+
+**优先级**：扩展名 → 命中注册表则返回；未命中或歧义（如 .bin）→ Magic bytes；仍不确定 → `unknown`。
+
+#### 2. 格式→modality 注册表
+
+| 格式/扩展名 | modality | 说明 |
+|-------------|----------|------|
+| .mp4, .mov, .avi, .mkv | video | 视频容器；可用 ffprobe 区分纯音频 |
+| .wav, .mp3, .flac, .m4a | audio | 音频 |
+| .pcd, .las, .ply | lidar | LiDAR 点云（扩展名唯一） |
+| .bin (点云) | lidar | 需 Magic bytes 或配置约定 |
+| .csv, .bin (振动) | vibration | 振动；.csv 可读表头，.bin 需 Magic bytes |
+| 未注册 / 无法判断 | unknown | **进 quarantine/unknown_format/**，不静默丢弃 |
+
+#### 3. Ingest 改造
+
+```
+get_video_paths() / get_raw_paths()
+    → 扩展为 scan_raw(cfg, paths)
+    → 对每个文件：detect_modality(path) → "video" | "audio" | "lidar" | "vibration" | "unknown"
+    → 按 modality 分组：{video: [p1,p2], audio: [p3], ...}
+    → 返回 groups，或保持扁平但每项带 modality 标签
+```
+
+**pre_filter**：在 dedup/decode_check 之前或之后，按 modality 调用对应 `modality_handlers.decode_check`。
+
+#### 4. Pipeline 路由
+
+- **方案 A**：按 modality 分批，每批独立跑 pipeline（batch_id 可带 modality 后缀，如 `Batch_20260224_video`）
+- **方案 B**：单批混合，pipeline 内按文件 modality 分发到不同 QC/Archive 逻辑
+
+推荐 **方案 A**：批次语义清晰，DB/归档结构简单。
+
+#### 5. Config 角色
+
+| 配置项 | 含义 |
+|--------|------|
+| `modality_filter: null` | 处理所有检测到的 modality（默认） |
+| `modality_filter: "video"` | 仅处理 video，其余跳过或进 quarantine |
+| `modality_filter: ["video", "audio"]` | 白名单，只处理列出的 modality |
+
+#### 6. 未知类型处理
+
+- **默认**：移入 `quarantine/unknown_format/`，与 duplicate、decode_failed 同级；打 WARNING 日志。
+- **可配置**：`unknown_format_action: "quarantine"`（默认）或 `"skip"`（仅 log 跳过，不移动）。
+- **原则**：不静默丢弃；人工可定期检查 quarantine/unknown_format/ 后决定纳入注册表或删除。
+
+### 与现有架构关系
+
+- **modality_handlers**（v2.9）：已有 `decode_check(path, cfg)` 按 modality 分发；入口从 config 改为 `detect_modality(path)` 返回值
+- **Ingest pre_filter**（v2.8）：在 pre_filter 内或之前加 modality 检测
+- **扩展**：新 modality 只需注册 `format → modality` + 实现 handler，不改主流程
+
+### 完成标准
+
+- [ ] `engines/modality_detector.py`：`detect_modality(path) -> str`，基于扩展名 + 可选 ffprobe
+- [ ] Ingest：`scan_raw` 返回按 modality 分组；pre_filter 按组调用对应 decode_check
+- [ ] Pipeline：支持按 modality 分批或单批内分发
+- [ ] Config：`modality_filter` 替代 `modality`，向后兼容（modality: video 视为 filter）
+- [ ] 未知格式：默认进 `quarantine/unknown_format/`，可配置 `unknown_format_action`
+- [ ] **Backward Compatibility**：旧 `modality: "video"` 等价 `modality_filter: ["video"]`，零改动迁移（见下）
+
+### 配置回退兼容 (Backward Compatibility) — v3 必须
+
+**场景**：大厂平滑迁移；老同事的旧配置 `modality: "video"` 不能一更新就报错。
+
+**设计**：
+
+- **保留** `modality: "video"` 语义：视为 `modality_filter: "video"`，仅处理 video 文件，其余跳过。
+- **兼容** `modality: "audio"`、`modality: "lidar"` 等单值：等价于 `modality_filter: ["audio"]`。
+- **新配置** `modality_filter: null` 或 `["video","audio"]`：显式控制。
+- **迁移**：config_loader 读取时，若存在 `modality` 且无 `modality_filter`，则 `modality_filter = [modality]`；旧配置零改动即可继续工作。
+
+---
+
 ## 🧬 阶段三：模型就绪与深度溯源 (v3.x) — ⬜ 待做
 
 *核心：数据→模型可追溯，团队可直接跑模型；Deep lineage 让 MLflow 真正闭环*
@@ -354,6 +453,36 @@
 - [ ] **raw_lidar/**：接入（.pcd/.las/.ply）、点云质量检查、与视频时间戳对齐
 - [ ] 统一重复+不合格策略，Batch_xxx/video 与 Batch_xxx/lidar 对齐
 
+#### 跨模态时间对齐 (Temporal Sync) — v4
+
+**场景**：矿车 10:00 发生剧烈震动，需同时看 10:00 的视频与 10:00 的振动数据，做多模态融合分析。
+
+**设计**：`detect_modality` 同时强制提取 **Timestamp**。无论何种模态，入库时必须有统一字段 `observed_at`（或 `timestamp`）。
+
+| 模态 | 时间戳来源 |
+|------|------------|
+| video | 文件元数据（creation_time）、或首帧 PTS、或文件名约定 |
+| audio | 同上 |
+| lidar | 点云帧头、或文件名时间戳 |
+| vibration | CSV 首列/时间列、或文件名 |
+
+**入库**：DB、manifest、MLflow 均带 `observed_at`；MLOps 可按时间窗口做跨模态关联（如「10:00±5s 的视频+振动」）。
+
+#### 硬件资源排他性 (Resource Locking) — v4 Edge
+
+**场景**：视频吃 GPU，振动吃 CPU/内存；多模态并发可能把 Edge 盒子跑崩。
+
+**设计**：在 `modality_handlers` 中增加**资源声明**。Handler 启动前检查资源占用，满足才执行。
+
+| Handler | 资源声明 | 检查逻辑 |
+|---------|----------|----------|
+| VideoHandler | gpu | 检查 GPU 占用率/显存；超阈值则排队或跳过 |
+| LidarHandler | memory | 检查可用内存；点云大文件需预留 |
+| VibrationHandler | cpu | 可选：CPU 负载高时降频或排队 |
+| AudioHandler | cpu | 通常轻量，可与其他 CPU 型串行 |
+
+**实现**：`modality_handlers` 注册 `required_resources: ["gpu"]`；调度层在启动 handler 前调用 `resource_guard.acquire(resources)`，用毕 `release`。Edge 单机时可简单串行：同一时刻只跑一个「重资源」modality。
+
 ### 分权管理与多租户（权限、审计、专属账号）
 
 - [ ] **模型组与专属账号**：每组只能使用与热更新自己名下的模型资产
@@ -392,9 +521,12 @@
 
 | 文档 | 用途 |
 |------|------|
+| **docs/v3_dev_plan.md** | V3 开发计划：步骤拆解、排期、验收标准 |
 | docs/architecture_thinking.md | 依赖注入、接口、状态机等进阶 |
 | docs/batch_output_confidence_tiers.md | refinery、inspection 命名与落盘逻辑 |
 
 ---
 
 *文档版本：v2026.02 | 版本线：v1 → v1.5 → v2 → v2.5 → v2.6 → v2.7 → v2.8 → v2.9 → v3 → v4 | 与工业/矿业 AI 安全、效率与数据质量需求对齐*
+
+**V3 开发计划**：详见 [docs/v3_dev_plan.md](v3_dev_plan.md)（步骤拆解、排期建议、验收标准）。

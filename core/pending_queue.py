@@ -148,7 +148,7 @@ def apply_decision(
     path_info = item.get("path_info") or {}
     if decision == "approve":
         from core import archiver
-        archiver.archive_produced(cfg, [], [item], path_info)
+        archiver.archive_approved_items(cfg, [item], path_info)
     else:
         reason = "duplicate" if item.get("is_duplicate") else "quality"
         from core import archiver
@@ -165,10 +165,38 @@ def apply_batch_decision(
 ) -> Tuple[int, List[str]]:
     """
     批量执行放行或拒绝。返回 (成功数, 失败 id 列表)。
+    放行时一次性调用 archive_produced，避免逐项跑量产（抽帧+YOLO）导致极慢。
     """
-    failed = []
+    items_list = get_all(cfg)
+    found_ids = {x.get("id") for x in items_list}
+    failed = [iid for iid in item_ids if iid not in found_ids]
+
+    to_process: List[Tuple[int, Dict[str, Any]]] = []
     for iid in item_ids:
-        ok, err = apply_decision(cfg, iid, decision)
-        if not ok:
-            failed.append(iid)
-    return len(item_ids) - len(failed), failed
+        if iid in failed:
+            continue
+        idx = next((i for i, x in enumerate(items_list) if x.get("id") == iid), None)
+        if idx is not None:
+            to_process.append((idx, items_list[idx]))
+
+    if not to_process:
+        return 0, failed
+
+    # 从队列移除（按索引倒序，避免 pop 后索引错位）
+    for idx, _ in sorted(to_process, key=lambda x: -x[0]):
+        items_list.pop(idx)
+
+    collected = [item for _, item in to_process]
+    path_info = collected[0].get("path_info") or {}
+
+    if decision == "approve":
+        from core import archiver
+        archiver.archive_approved_items(cfg, collected, path_info)
+    else:
+        from core import archiver
+        reasons = [("duplicate" if x.get("is_duplicate") else "quality") for x in collected]
+        archiver.archive_rejected(cfg, list(zip(collected, reasons)), path_info.get("batch_id", ""))
+
+    if not _save_queue(cfg, items_list):
+        return 0, list(item_ids)
+    return len(collected), failed

@@ -6,7 +6,8 @@
 modality: video   # video | audio | vibration（v3 扩展）
 
 paths:
-  raw_video: "/Users/mac/Downloads/video"
+  raw_video: "storage/raw"
+  test_source: "storage/test/original"   # 测试模式：从此复制到 raw，pipeline 不改动此目录
   data_warehouse: "storage/archive"
   dashboard_port: 8765   # 厂长中控台端口
   rejected_material: "storage/rejected"
@@ -32,7 +33,7 @@ paths:
     labeled: "labeled"   # 人工标注回传落盘（import_labeled_return 达标后按 batch_id 写回）
 
   # 启动时确保存在的目录（可覆盖以适配自定义部署）
-  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, quarantine, logs]
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, test_source, pending_review, quarantine, logs]
 
 ingest:
   batch_wait_seconds: 8
@@ -62,6 +63,7 @@ production_setting:
   save_warning: true
   save_only_screened: false  # true=只落盘「Warning 或 有 YOLO 检测」的帧，减少全量切片（见 docs/smart_slicing.md）
   confidence_tiered_output: true   # true=按置信分层落盘(refinery、inspection)；false=全部写 refinery
+  approved_split_confidence_threshold: 0.6   # 放行项按 YOLO 置信度分流：max_conf>=此值→refinery，否则→inspection
   human_review_flat: true   # true=inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
 
 review:

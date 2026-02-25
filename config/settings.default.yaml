@@ -3,6 +3,7 @@
 
 paths:
   raw_video: "storage/raw"
+  test_source: "storage/test/original"
   data_warehouse: "storage/archive"
   rejected_material: "storage/rejected"
   redundant_archives: "storage/redundant"
@@ -23,7 +24,7 @@ paths:
     refinery: "refinery"
     inspection: "inspection"
     labeled: "labeled"
-  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, quarantine, logs]
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, test_source, pending_review, quarantine, logs]
 
 ingest:
   batch_wait_seconds: 8

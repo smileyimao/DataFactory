@@ -12,6 +12,8 @@
 
 流程与信号类型解耦。切换 modality 时，Ingest decode_check、Funnel QC、Archive 按 `engines/modality_handlers` 分发。v3 扩展 audio/vibration（predictive maintenance、FFT 频谱）时，在此配置即可。
 
+**v3 演进**：将引入 `modality_filter`（按文件自动识别后过滤）；旧 `modality: "video"` 等价 `modality_filter: ["video"]`，零改动迁移。详见 **docs/Roadmap.md** Auto-modality Routing。
+
 ---
 
 ## 1. paths（路径）
@@ -19,6 +21,7 @@
 | 键 | 说明 | 默认/示例 |
 |----|------|-----------|
 | `raw_video` | 原材料视频目录，单次/Guard 均从此扫描 | `storage/raw` |
+| `test_source` | 测试源目录：`main.py --test` 从此复制到 raw，pipeline 不改动此目录 | `storage/test/original` |
 | `data_warehouse` | 合格成品归档目录（按 Batch 建子目录） | `storage/archive` |
 | `rejected_material` | 不合格废片归档目录 | `storage/rejected` |
 | `redundant_archives` | 重复件归档目录 | `storage/redundant` |
@@ -84,6 +87,7 @@
 | `save_warning` | 是否保存 Warning 帧样本 | `true` |
 | `save_only_screened` | 为 true 时只落盘「质量异常(Warning) 或 该帧有 YOLO 检测」的帧，减少全量切片 | `false` |
 | `human_review_flat` | 为 true 时 inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入 | `true` |
+| `approved_split_confidence_threshold` | 放行项按 YOLO 置信度分流：max_conf≥此值→refinery，否则→inspection；vision 未开启时全部→refinery | `0.6` |
 
 详见 **docs/smart_slicing.md**（YOLO 筛查与只落盘关键帧）。
 

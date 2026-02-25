@@ -104,6 +104,20 @@
       cursor: pointer;
     }
     .refresh { margin-left: auto; }
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,20,25,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      color: var(--text);
+    }
+    .loading-overlay.hidden { display: none; }
+    .loading-spinner { font-size: 2rem; margin-bottom: 0.5rem; }
+    .loading-msg { font-size: 0.95rem; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -118,6 +132,10 @@
   </div>
   <div id="grid" class="grid"></div>
   <div id="empty" class="empty" style="display:none">暂无待复核项，产线运行正常。</div>
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="loading-spinner">⏳</div>
+    <div class="loading-msg">处理中，视频抽帧与质检需 1～2 分钟，请勿关闭页面</div>
+  </div>
 
   <script>
     const API = '';
@@ -196,19 +214,34 @@
     }
 
     async function act(action, ids) {
+      if (!ids.length) return;
+      const overlay = document.getElementById('loadingOverlay');
+      overlay.classList.remove('hidden');
+
       const endpoint = ids.length === 1
-        ? `/api/pending/${ids[0]}/${action}`
+        ? `/api/pending/${encodeURIComponent(ids[0])}/${action}`
         : `/api/pending/batch/${action}`;
       const opts = ids.length === 1
         ? { method: 'POST' }
         : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) };
-      const r = await fetch(API + endpoint, opts);
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        alert(err.detail || '操作失败');
-        return;
+
+      try {
+        const r = await fetch(API + endpoint, opts);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          alert(data.detail || data.message || '操作失败');
+          return;
+        }
+        if (data.failed && data.failed.length > 0) {
+          alert(`部分失败: ${data.failed.length} 项未找到 (${data.failed.join(', ')})`);
+        }
+        await fetchPending();
+      } finally {
+        overlay.classList.add('hidden');
+        document.getElementById('batchApprove').disabled = items.length === 0;
+        document.getElementById('batchReject').disabled = items.length === 0;
+        updateBatchState();
       }
-      await fetchPending();
     }
 
     function getSelectedIds() {

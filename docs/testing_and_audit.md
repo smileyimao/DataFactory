@@ -16,7 +16,11 @@
 
 **主流程 `main.py` 没有 dry run**：它跑的是真实流程，处理 `storage/raw` 里的真实视频。要「不跑真实数据」只能：
 - 把 `paths.raw_video` 指向空目录或测试目录；
-- 或用 smoke_test：在**临时目录**里用**小测试视频**跑 QC，跑完即删。
+- 或用 `python main.py --test`：在**临时目录**里跑全链路，跑完即删，不污染真实 storage/DB。
+
+**自动化测试：** Pipeline 会把 raw 里的视频 move 到 archive/rejected，raw 会被清空。为支持反复测试：
+- 用 `python main.py --test`：从 `paths.test_source`（默认 `storage/test/original`）复制到**临时 raw**，在临时环境中跑全链路（Ingest → QC → Review → Archive），邮件照发，退出后临时目录自动清理；
+- 测试源 `paths.test_source` 保持不变，pipeline 不改动此目录。
 
 ---
 
@@ -73,12 +77,12 @@ main()
 |------|------|------|
 | `tests/unit/` | test_config_loader, test_quality_tools | 单元：validate_config、decide_env |
 | `tests/integration/` | test_dual_gate | 集成：双门槛分流、archiver |
-| `tests/e2e/` | test_smoke | 端到端：QC 全流程（需测试视频） |
+| `tests/e2e/` | test_smoke, test_main_full_pipeline, test_guard | 端到端：QC 全流程、main.py --test 全链路、Guard 模式 |
 | `tests/api/` | test_health_metrics | API：/api/health、/api/metrics |
 
-**旧脚本**（保留）：`smoke_test.py`、`test_dual_gate_mlflow.py` 可单独运行，推荐迁移到 pytest。
+**全链路**：`main.py --test` 在临时环境跑完整 pipeline，邮件照发，不污染真实数据。
 
-**smoke_test 失败常见原因**：`storage/test/original/` 不存在或缺少 normal.mov 等。
+**e2e 失败常见原因**：`paths.test_source`（默认 `storage/test/original/`）不存在或缺少 normal.mov 等测试视频。
 
 ---
 
@@ -133,7 +137,7 @@ main.py
 
 1. **reset_factory dry-run**：`python scripts/reset_factory.py`，看打印是否符合预期
 2. **空 raw 跑 main**：`paths.raw_video` 指向空目录，跑 `main.py`，看是否优雅退出
-3. **准备 smoke 测试数据**：在 `storage/test/original/` 放 normal.mov 等，跑 `smoke_test.py`
+3. **准备 e2e 测试数据**：在 `paths.test_source`（默认 `storage/test/original/`）放 normal.mov 等，跑 `pytest tests/e2e/ -v`
 4. **单次真实跑**：放 1–2 个小视频到 raw，跑 `main.py`，观察每步输出
 5. **dashboard**：`review.mode=dashboard`，跑 main 后 `python -m dashboard.app`，看队列
 6. **import_labeled_return --dry-run**：若有 for_labeling 数据，跑一遍看对比结果
