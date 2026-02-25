@@ -173,6 +173,7 @@ Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **
 | Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver；time_utils（时区） |
 | Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, retry_utils, metrics, labeling_export, labeled_return |
 | Config | `config/` | settings.yaml, config_loader; paths and thresholds |
+| Models | `models/` | YOLO 及级联检测 .pt；vision.model_path 配置 |
 | Storage | `storage/` | raw, archive, rejected, redundant, quarantine, test, reports, for_labeling, labeled_return, training |
 | DB | `db/` | factory_admin.db (production_history, batch_metrics, model_comparison) |
 | Docs | `docs/` | Roadmap, architecture, settings, smart_slicing, **architecture_mindmap** |
@@ -212,7 +213,7 @@ See **docs/Roadmap.md**.
 | **Cheaper than sending people** | No need for routine trips to collect disks. Deploy once at the edge; sync results on a schedule or on demand. Operational and training data (curated images) remain small. |
 | **Remote model updates are small** | Pushing a new model to the edge is a single download (e.g. one `.pt` file, on the order of MB). Much smaller than raw video; hot-push or scheduled model/config updates are bandwidth-friendly. |
 
-**In short**: the mine keeps the raw data; the pipeline runs there and only “finished products” (reports, metrics, and optionally key frames / training samples) go out. That keeps cost down and makes edge deployment something sites can accept. **Data lineage tracking** (fingerprint, batch_id, archive path, version_info) ensures each file's provenance is traceable. See **docs/Roadmap.md** (v3 Edge Deployment, 多节点部署) for the full design.
+**In short**: the mine keeps the raw data; the pipeline runs there and only “finished products” (reports, metrics, and optionally key frames / training samples) go out. That keeps cost down and makes edge deployment something sites can accept. **Data lineage tracking** (fingerprint, batch_id, archive path, version_info) ensures each file's provenance is traceable. See **docs/Roadmap.md** (v4 Edge Deployment, 多节点部署) for the full design.
 
 ---
 

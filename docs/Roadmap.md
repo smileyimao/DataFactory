@@ -390,9 +390,6 @@
 
 | 文档 | 用途 |
 |------|------|
-| docs/implementation_checklist.md | 已实现 vs 待做清单、实现顺序 |
-| docs/v2_kickoff.md | v2.0 开工说明与里程碑 |
-| docs/architecture_mapping.md | 现状→目标映射、目录结构 |
 | docs/architecture_thinking.md | 依赖注入、接口、状态机等进阶 |
 | docs/batch_output_confidence_tiers.md | refinery、inspection 命名与落盘逻辑 |
 

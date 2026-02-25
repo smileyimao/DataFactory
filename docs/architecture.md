@@ -74,10 +74,8 @@ Guard 模式下保安持续巡逻 raw 目录，发现新视频即凑批送厂。
 
 ## 四、关键文档索引
 
-- **[architecture_mapping.md](architecture_mapping.md)** — 现状到目标架构的映射表、流程/工具/决策/配置归属、迁移优先级与目标目录结构。
 - **[architecture_thinking.md](architecture_thinking.md)** — 架构进阶：依赖注入、接口/协议、状态机、事件驱动、配置验证、错误处理等可选增强。
 - **[Roadmap.md](Roadmap.md)** — 版本规划与 v2.x 预留（sync_id、人机冲突 Conflict）。
-- **[implementation_checklist.md](implementation_checklist.md)** — 实现与自检清单。
 
 ---
 

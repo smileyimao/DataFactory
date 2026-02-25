@@ -1,6 +1,9 @@
 # 🏭 DataFactory 配置中心 (v1.6)
 # 路径均相对于项目根目录 (base_dir)，由 config_loader 解析为绝对路径
 # 工业级：路径解耦，改名只需改此处，支持 env 覆盖（如 DATA_WAREHOUSE）
+# v2.9：modality 解耦，未来可扩展 audio/vibration（predictive maintenance）
+
+modality: video   # video | audio | vibration（v3 扩展）
 
 paths:
   raw_video: "/Users/mac/Downloads/video"
@@ -76,7 +79,7 @@ email_setting:
 # v2.0 视觉质检（YOLO）：开关、模型路径、抽帧与推理参数（均从配置读取，无硬编码）
 vision:
   enabled: true
-  model_path: "yolov8n.pt"            # 留空则不加载；可填 yolov8n.pt 或本地 .pt 路径
+  model_path: "models/yolov8n.pt"     # 留空则不加载；相对项目根，可填绝对路径
   sample_seconds: 10       # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
   # 四板斧：高效筛查
   use_i_frame_only: false   # true=只解 I-帧（需 ffprobe），减少解码量

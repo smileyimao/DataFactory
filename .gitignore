@@ -32,4 +32,4 @@ tests/output/
 # MLflow 与模型文件（本地运行生成，不提交）
 mlruns/
 mlflow.db
-yolov8n.pt
+models/*.pt
