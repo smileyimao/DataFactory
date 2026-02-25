@@ -73,3 +73,36 @@ def safe_move_with_retry(
         except Exception:
             pass
         return False
+
+
+def safe_copy_with_retry(
+    src: str,
+    dest: str,
+    max_attempts: int = 3,
+    backoff_seconds: float = 1.0,
+) -> bool:
+    """
+    带重试的 shutil.copy2。成功返回 True，失败记录日志并返回 False（不抛异常，便于批量操作继续）。
+    用于 copy_to_batch_labeled、merge_to_training 等，防止磁盘满/权限不足时静默失败。
+    """
+    import shutil
+    try:
+        with_retry(
+            lambda: shutil.copy2(src, dest),
+            max_attempts=max_attempts,
+            backoff_seconds=backoff_seconds,
+            operation="shutil.copy2",
+            context=f"{src} -> {dest}",
+        )
+        return True
+    except (OSError, IOError, PermissionError) as e:
+        logger.warning(
+            "文件拷贝失败（已重试 %d 次）: %s -> %s: %s",
+            max_attempts, src, dest, e,
+        )
+        try:
+            from engines import metrics
+            metrics.inc("file_copy_errors_total")
+        except Exception:
+            pass
+        return False

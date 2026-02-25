@@ -275,8 +275,13 @@ def merge_to_training(
     import_dir: str,
     training_dir: str,
     import_id: str,
+    cfg: Optional[dict] = None,
 ) -> int:
-    """将 import_dir 内图片+txt 并入 training_dir/import_id/，返回文件数。"""
+    """将 import_dir 内图片+txt 并入 training_dir/import_id/，返回文件数。使用 retry 防静默失败。"""
+    from engines import retry_utils
+    retry_cfg = (cfg or {}).get("retry", {})
+    max_attempts = retry_cfg.get("max_attempts", 3)
+    backoff = retry_cfg.get("backoff_seconds", 1.0)
     dest = os.path.join(training_dir, import_id)
     os.makedirs(dest, exist_ok=True)
     count = 0
@@ -286,9 +291,63 @@ def merge_to_training(
             continue
         ext = os.path.splitext(name)[1].lower()
         if ext in IMAGE_EXT or ext == ".txt":
-            shutil.copy2(path, os.path.join(dest, name))
-            count += 1
+            dest_path = os.path.join(dest, name)
+            if retry_utils.safe_copy_with_retry(path, dest_path, max_attempts, backoff):
+                count += 1
+            # 失败时 safe_copy_with_retry 已打 warning，不静默
     logger.info("训练集并入: %s -> %s, %d 个文件", import_id, dest, count)
+    return count
+
+
+def copy_to_batch_labeled(
+    import_dir: str,
+    manifest_map: Dict[str, Dict[str, Any]],
+    archive_base: str,
+    labeled_subdir: str = "labeled",
+    cfg: Optional[dict] = None,
+) -> int:
+    """
+    将达标标注按 batch_id 写回 archive/Batch_xxx/labeled/，保持批次血缘。
+    使用 retry 防磁盘满/权限不足时静默失败；失败时打 warning 并计入 metrics。
+    返回写入 batch labeled 的文件数。
+    """
+    from engines import retry_utils
+    if not archive_base or not os.path.isdir(archive_base):
+        return 0
+    retry_cfg = (cfg or {}).get("retry", {})
+    max_attempts = retry_cfg.get("max_attempts", 3)
+    backoff = retry_cfg.get("backoff_seconds", 1.0)
+    count = 0
+    for name in sorted(os.listdir(import_dir)):
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in IMAGE_EXT and ext != ".txt":
+            continue
+        entry = manifest_map.get(name)
+        if not entry:
+            base, _ = os.path.splitext(name)
+            entry = manifest_map.get(base + ".txt")
+        if not entry:
+            continue
+        batch_id = entry.get("batch_id", "").strip()
+        if not batch_id:
+            continue
+        batch_dir = os.path.join(archive_base, batch_id)
+        labeled_dir = os.path.join(batch_dir, labeled_subdir)
+        if not os.path.isdir(batch_dir):
+            continue
+        try:
+            os.makedirs(labeled_dir, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            logger.warning("创建 labeled 目录失败 %s: %s", labeled_dir, e)
+            continue
+        src = os.path.join(import_dir, name)
+        if os.path.isfile(src):
+            dest_path = os.path.join(labeled_dir, name)
+            if retry_utils.safe_copy_with_retry(src, dest_path, max_attempts, backoff):
+                count += 1
+            # 失败时 safe_copy_with_retry 已打 warning，不静默
+    if count > 0:
+        logger.info("标注回写批次 labeled: %d 个文件 -> archive/Batch_xxx/%s/", count, labeled_subdir)
     return count
 
 
@@ -350,8 +409,15 @@ def run_full_pipeline(
         send_alert(cfg, import_id, consistency_rate, threshold, diff_report)
 
     merged_count = 0
-    if passed and not skip_merge and not dry_run and training_dir:
-        merged_count = merge_to_training(import_dir, training_dir, import_id)
+    batch_labeled_count = 0
+    if passed and not dry_run:
+        if not skip_merge and training_dir:
+            merged_count = merge_to_training(import_dir, training_dir, import_id, cfg)
+        # 按 batch_id 写回 archive/Batch_xxx/labeled/，保持批次血缘
+        labeled_subdir = paths.get("batch_subdirs", {}).get("labeled", "labeled")
+        batch_labeled_count = copy_to_batch_labeled(
+            import_dir, manifest_map, archive_base, labeled_subdir, cfg
+        )
 
     return {
         "ok": True,
@@ -361,5 +427,6 @@ def run_full_pipeline(
         "passed": passed,
         "diff_count": len(diff_report),
         "merged_count": merged_count,
+        "batch_labeled_count": batch_labeled_count,
         "dry_run": dry_run,
     }

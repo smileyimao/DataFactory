@@ -1,5 +1,30 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
+## [v2.9] - 2026-02-24
+### 📝 版本概览
+**Modality 解耦（YAGNI）**：流程与信号类型解耦，为 v3 多模态（audio/vibration、predictive maintenance）预留接口。config 切换 modality 即可，未来只需加 handler。
+
+#### 加固与测试（2026-02-20 补充）
+* **MLflow 存储**：`tracking_uri` 默认 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录，便于备份与部署。
+* **labeled 子目录**：`batch_subdirs.labeled` 新增；`import_labeled_return` 达标后将人工标注按 batch_id 写回 `archive/Batch_xxx/labeled/`，保持批次血缘。
+* **数据一致性防静默失败**：`copy_to_batch_labeled`、`merge_to_training` 使用 `retry_utils.safe_copy_with_retry`；磁盘满/权限不足时重试后打 warning、计入 `file_copy_errors_total`，不静默。
+* **单元测试**：db_tools 异常测试用 `sqlite3.OperationalError`；quality_tools、integration、api 在 macOS 上因 cv2/numpy Floating-point exception 自动 skip。
+* **requirements-dev.txt**：新增 hypothesis、httpx（FastAPI TestClient）。
+* **根目录清理**：删除旧配置产物 `mlflow.db`（根目录）、`mlruns/`、`.hypothesis/`、`.pytest_cache/`；`.gitignore` 补充 `.pytest_cache/`、`.hypothesis/`；`settings.default.yaml` 与当前结构 sync（labeled、quarantine、retry 等），`reset_config.py` 恢复后配置完整。
+
+#### Modality 抽象层
+* **config**：`modality: video`（默认）；预留 `audio`、`vibration`。
+* **engines/modality_handlers.py**：`decode_check(path, cfg)` 按 modality 分发；video 用 cv2，audio/vibration 占位返回 True。
+* **core/ingest.py**：pre_filter 使用 `modality_handlers.decode_check`，不再硬编码 cv2。
+* **core/pipeline.py**：入口检查 modality，非 video 时提示「v3 实现」并跳过。
+* **预留接口**：sample、quality_check、produce 注释占位，v3 扩展时注册 handler。
+
+#### 扩展方式
+* v3 加 audio：实现 `_decode_check_audio`，config `modality: audio`，加 ingest 路径与 QC/Archive handler。
+* 无需改 pipeline 主流程。
+
+---
+
 ## [v2.8] - 2026-02-20
 ### 📝 版本概览
 **Ingest 预检与流程模块化**：在 Watchdog + 轮询凑批之后、送入 pipeline 之前，增加 dedup + 首帧解码预检。失败项移入 quarantine，流程更清晰、更模块化。

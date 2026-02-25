@@ -1,2 +1,0 @@
-# 安装时强制 numpy 1.x，避免与 PyTorch/ultralytics 冲突
-numpy>=1.26,<2

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from config import config_loader
 from core import ingest, qc_engine, reviewer, archiver, pending_queue
-from engines import db_tools, labeling_export, metrics
+from engines import db_tools, labeling_export, metrics, modality_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +127,12 @@ def run_smart_factory(
     cfg = config_loader.load_config()
     if gate_val is not None:
         cfg.setdefault("production_setting", {})["pass_rate_gate"] = float(gate_val)
+
+    modality = modality_handlers.get_modality(cfg)
+    if modality != "video":
+        print(f"❌ 当前仅支持 modality=video，config 中 modality={modality} 将在 v3 实现（audio/vibration）。")
+        logger.warning("modality=%s 未实现，跳过 pipeline", modality)
+        return
 
     videos = ingest.get_video_paths(cfg, video_paths)
     if not videos:

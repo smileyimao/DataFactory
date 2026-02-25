@@ -29,6 +29,7 @@ paths:
     source: "source"
     refinery: "refinery"
     inspection: "inspection"
+    labeled: "labeled"   # 人工标注回传落盘（import_labeled_return 达标后按 batch_id 写回）
 
   # 启动时确保存在的目录（可覆盖以适配自定义部署）
   ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, quarantine, logs]
@@ -79,12 +80,12 @@ email_setting:
 # v2.0 视觉质检（YOLO）：开关、模型路径、抽帧与推理参数（均从配置读取，无硬编码）
 vision:
   enabled: true
-  model_path: "models/yolov8n.pt"     # 留空则不加载；相对项目根，可填绝对路径
+  model_path: "models/yolov8s.pt"    # 主模型（small）；留空则不加载
   sample_seconds: 10       # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
   # 四板斧：高效筛查
   use_i_frame_only: false   # true=只解 I-帧（需 ffprobe），减少解码量
   motion_threshold: 0       # 运动唤醒：帧差低于此值不跑 YOLO，0=关闭
-  cascade_light_model_path: ""   # 级联初筛：轻量模型路径，空=关闭；有东西才上主模型
+  cascade_light_model_path: "models/yolov8n.pt"   # 级联初筛：nano 轻量模型，有东西才上主模型
   cascade_light_conf: 0.2   # 级联轻量模型置信度阈值
   # 推理参数（predict）：未配置时由 config_loader 填入工业默认值
   conf: 0.25                # 置信度阈值 [0,1]
@@ -100,7 +101,7 @@ vision:
 mlflow:
   enabled: true
   experiment_name: "datafactory"
-  tracking_uri: null   # null 为本地 ./mlruns
+  tracking_uri: null   # null 则用 db/mlflow.db（config_loader 默认）
 
 # M2 版本映射：日志与元数据中可写可读，便于 v4 血缘与审计
 version_mapping:

@@ -4,7 +4,7 @@ import os
 import logging
 from typing import List, Optional, Tuple
 
-from engines import file_tools, fingerprinter, db_tools, retry_utils
+from engines import file_tools, fingerprinter, db_tools, retry_utils, modality_handlers
 from config import config_loader
 
 logger = logging.getLogger(__name__)
@@ -25,21 +25,6 @@ def get_video_paths(
         return out
     exts = tuple(cfg.get("ingest", {}).get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
     return file_tools.list_video_paths(raw_dir, exts)
-
-
-def _decode_check(path: str) -> bool:
-    """轻量首帧解码：尝试打开视频并读一帧。成功返回 True，失败返回 False。"""
-    try:
-        import cv2
-        cap = cv2.VideoCapture(path)
-        if not cap.isOpened():
-            return False
-        ret, frame = cap.read()
-        cap.release()
-        return bool(ret and frame is not None)
-    except Exception as e:
-        logger.warning("首帧解码失败: path=%s — %s", path, e)
-        return False
 
 
 def _move_to_quarantine(src: str, subdir: str, cfg: dict) -> bool:
@@ -97,9 +82,9 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
                     continue
                 seen_fp.add(fp)
 
-        # 2. Decode check
+        # 2. Decode check（按 modality 分发，v2.9 解耦）
         if decode_check:
-            if not _decode_check(path):
+            if not modality_handlers.decode_check(path, cfg):
                 if _move_to_quarantine(path, "decode_failed", cfg):
                     stats["quarantine_decode_failed"] += 1
                     logger.warning("Ingest 预检-解码失败: 已移入 quarantine — %s", os.path.basename(path))

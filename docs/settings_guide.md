@@ -4,6 +4,16 @@
 
 ---
 
+## 0. modality（v2.9 多模态解耦）
+
+| 键 | 说明 | 默认 |
+|----|------|------|
+| `modality` | 信号类型：`video`（当前唯一实现）、`audio`、`vibration`（v3 扩展） | `video` |
+
+流程与信号类型解耦。切换 modality 时，Ingest decode_check、Funnel QC、Archive 按 `engines/modality_handlers` 分发。v3 扩展 audio/vibration（predictive maintenance、FFT 频谱）时，在此配置即可。
+
+---
+
 ## 1. paths（路径）
 
 | 键 | 说明 | 默认/示例 |
@@ -22,7 +32,7 @@
 | `db_file` | 生产数据库文件路径 | `db/factory_admin.db` |
 | `batch_prefix` | 批次目录前缀 | `Batch_` |
 | `batch_fails_suffix` | 废片目录后缀 | `_Fails` |
-| `batch_subdirs` | 批次内子目录名（reports/source/refinery/inspection） | 见 path_decoupling.md |
+| `batch_subdirs` | 批次内子目录名（reports/source/refinery/inspection/labeled） | 见 path_decoupling.md |
 | `pending_review` | 待复核队列目录（中控台） | `storage/pending_review` |
 | `quarantine` | Ingest 预检：重复/解码失败视频移入此目录 | `storage/quarantine` |
 
@@ -127,7 +137,9 @@
 | `consistency_threshold` | 一致率低于此值报警，要求差异部分复核 | `0.95` |
 | `alert_via_email` | 是否发邮件报警（使用 `email_setting`） | `true` |
 
-用于 `scripts/import_labeled_return.py`：回传与伪标签对比后，低于门槛则发邮件，达标则并入 `paths.training`。
+用于 `scripts/import_labeled_return.py`：回传与伪标签对比后，低于门槛则发邮件，达标则并入 `paths.training`，并按 batch_id 写回 `archive/Batch_xxx/labeled/`（使用 `retry_utils.safe_copy_with_retry` 防静默失败）。
+
+**MLflow**（`config mlflow`）：`tracking_uri` 默认 `null` 时自动设为 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录；`enabled` 控制是否记录批次实验。
 
 ---
 
@@ -138,7 +150,7 @@
 | `timezone` | 日志、邮件、batch_id 时区 | `America/Toronto` |
 | `logging.max_bytes` | 单日志文件最大字节，超则轮转 | `10485760`（10MB） |
 | `logging.backup_count` | 轮转后保留历史文件数 | `5` |
-| `retry.max_attempts` | 文件移动等操作失败重试次数 | `3` |
+| `retry.max_attempts` | 文件移动/拷贝失败重试次数（move、copy_to_batch_labeled、merge_to_training） | `3` |
 | `retry.backoff_seconds` | 重试间隔基数（秒） | `1.0` |
 
 ---

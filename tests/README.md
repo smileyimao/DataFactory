@@ -1,12 +1,42 @@
-# tests/ — 测试脚本（项目根目录，通用约定）
+# DataFactory 测试
 
-所有测试类脚本放此目录，与 `scripts/`（运维/工具脚本）区分。pytest、CI 等默认会识别根目录 `tests/`。
+pytest 分层测试：unit / integration / e2e / api。
 
-**运行方式**（在项目根目录执行）：
+## 安装
 
 ```bash
-.venv/bin/python tests/test_dual_gate_mlflow.py
-.venv/bin/python tests/smoke_test.py
+pip install -r requirements-dev.txt
 ```
 
-脚本内通过 `PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)` 解析项目根，用于加载 config、storage。
+## 运行
+
+```bash
+# 全量（排除 e2e，e2e 需测试视频）
+pytest tests/ -v -m "not e2e"
+
+# 仅单元
+pytest tests/unit/ -v
+
+# 仅集成
+pytest tests/integration/ -v
+
+# 含 e2e（需 storage/test/original/ 下 normal.mov 等）
+pytest tests/ -v
+
+# 覆盖率
+pytest tests/ -m "not e2e" --cov=config --cov=core --cov=engines --cov-report=term-missing
+```
+
+## 目录
+
+| 目录 | 说明 |
+|------|------|
+| `unit/` | 单元：validate_config、decide_env 等 |
+| `integration/` | 集成：双门槛分流、archiver |
+| `e2e/` | 端到端：smoke QC 全流程（需测试视频） |
+| `api/` | API：/api/health、/api/metrics |
+| `fixtures/` | 测试数据占位 |
+
+## 旧脚本
+
+`smoke_test.py`、`test_dual_gate_mlflow.py` 保留作参考，推荐使用 pytest。

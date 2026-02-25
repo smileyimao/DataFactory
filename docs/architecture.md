@@ -62,10 +62,10 @@ Guard 模式下保安持续巡逻 raw 目录，发现新视频即凑批送厂。
 |------|------|------|
 | **入口** | `main.py` | 总开关：set_base_dir → init_storage_structure → load_config → init_db → pipeline / guard |
 | **流程** | `core/` | 编排：ingest → qc_engine → reviewer → archiver；guard 监控 |
-| **工具** | `engines/` | 纯工具：quality_tools、fingerprinter、db_tools、report_tools、production_tools、notifier、file_tools |
+| **工具** | `engines/` | 纯工具：quality_tools、fingerprinter、db_tools、report_tools、production_tools、notifier、file_tools、retry_utils（move/copy 重试）、labeled_return |
 | **配置** | `config/` | settings.yaml、config_loader（路径解析与 init_storage_structure）、logging |
-| **存储** | `storage/` | raw / archive / rejected / redundant / test / reports |
-| **数据库** | `db/` | factory_admin.db（生产历史、指纹、sync_id 预留） |
+| **存储** | `storage/` | raw / archive / rejected / redundant / test / reports / for_labeling / labeled_return / training；Batch 内 reports/source/refinery/inspection/labeled |
+| **数据库** | `db/` | factory_admin.db（生产历史、指纹）；mlflow.db（MLflow 实验，tracking_uri 默认） |
 | **文档** | `docs/` | 架构与配置说明、Roadmap |
 
 原则：**工具只干活不决策，决策在 core（qc_engine / reviewer），配置只存不判。**

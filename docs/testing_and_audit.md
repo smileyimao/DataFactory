@@ -67,10 +67,16 @@ main()
 
 ## 三、现有测试
 
-| 测试 | 数据 | 跑什么 | 前置 |
-|------|------|--------|------|
-| `smoke_test.py` | storage/test/original/ 下 normal.mov, jitter.mov, black.mov, image.jpg | QC 全流程（临时目录），断言 PASS/REVIEW/REJECTED/DUPLICATE | 需准备测试视频 |
-| `test_dual_gate_mlflow.py` | mock 数据（无真实视频） | 双门槛分流、邮件、归档、MLflow | email_setting 已配置 |
+**pytest 分层**（推荐）：`pytest tests/ -v -m "not e2e"`
+
+| 目录 | 测试 | 说明 |
+|------|------|------|
+| `tests/unit/` | test_config_loader, test_quality_tools | 单元：validate_config、decide_env |
+| `tests/integration/` | test_dual_gate | 集成：双门槛分流、archiver |
+| `tests/e2e/` | test_smoke | 端到端：QC 全流程（需测试视频） |
+| `tests/api/` | test_health_metrics | API：/api/health、/api/metrics |
+
+**旧脚本**（保留）：`smoke_test.py`、`test_dual_gate_mlflow.py` 可单独运行，推荐迁移到 pytest。
 
 **smoke_test 失败常见原因**：`storage/test/original/` 不存在或缺少 normal.mov 等。
 

@@ -1,0 +1,6 @@
+# 开发与测试依赖（pip install -r requirements.txt -r requirements-dev.txt）
+-r requirements.txt
+pytest>=7.0
+pytest-cov>=4.0
+hypothesis>=6.0
+httpx>=0.24   # FastAPI TestClient 依赖

@@ -1,7 +1,7 @@
 # P3 代码格式化与类型检查（black + isort + mypy）
 [project]
 name = "datafactory"
-version = "2.8"
+version = "2.9"
 description = "工业视频质检流水线"
 requires-python = ">=3.9"
 
@@ -28,3 +28,14 @@ python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "unit: 单元测试",
+    "integration: 集成测试",
+    "e2e: 端到端（需测试视频）",
+]

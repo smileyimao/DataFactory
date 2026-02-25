@@ -54,6 +54,8 @@ def main():
     print(f"   结果: {'✅ 达标' if r['passed'] else '⚠️ 未达标，已触发报警'}")
     if r.get("merged_count", 0) > 0:
         print(f"   已并入训练集: {r['merged_count']} 个文件")
+    if r.get("batch_labeled_count", 0) > 0:
+        print(f"   已写回批次 labeled: {r['batch_labeled_count']} 个文件")
     if args.dry_run:
         print("   [dry-run] 未写报告、未发邮件、未并入")
     return 0

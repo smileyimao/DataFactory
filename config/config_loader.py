@@ -50,7 +50,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         if isinstance(p, str) and not os.path.isabs(p):
             paths[key] = os.path.join(base, p)
     # batch_subdirs 保持相对名（不解析为绝对路径），合并 YAML 与默认
-    defaults = {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection"}
+    defaults = {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"}
     paths["batch_subdirs"] = {**defaults, **(paths.get("batch_subdirs") or {})}
     paths.setdefault("batch_prefix", "Batch_")
     paths.setdefault("batch_fails_suffix", "_Fails")
@@ -61,6 +61,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     ])
     data["paths"] = paths
     data["_base_dir"] = base
+    data.setdefault("modality", "video")
     if "golden" not in data["paths"]:
         data["paths"]["golden"] = os.path.join(base, "storage", "golden")
     if "pending_review" not in data["paths"]:
@@ -106,7 +107,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     mf = data["mlflow"]
     mf.setdefault("enabled", False)
     mf.setdefault("experiment_name", "datafactory")
-    mf.setdefault("tracking_uri", None)
+    if mf.get("tracking_uri") is None:
+        # 默认使用 db/mlflow.db，与 factory_admin.db 同目录，便于备份与部署
+        mf["tracking_uri"] = "sqlite:///" + os.path.join(base, "db", "mlflow.db").replace("\\", "/")
     data.setdefault("production_setting", {})
     data["production_setting"].setdefault("human_review_flat", True)
     data.setdefault("labeling_pool", {})
@@ -214,6 +217,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
     """无 YAML 时的默认配置（路径基于 base_dir）。"""
     return {
         "_base_dir": base_dir,
+        "modality": "video",
         "paths": {
             "raw_video": os.path.join(base_dir, "storage", "raw"),
             "data_warehouse": os.path.join(base_dir, "storage", "archive"),
@@ -230,7 +234,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "db_file": os.path.join(base_dir, "db", "factory_admin.db"),
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
-            "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection"},
+            "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"},
             "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "pending_review", "quarantine", "logs"],
         },
         "ingest": {
@@ -285,7 +289,11 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "algorithm_version": "rules_v1",
             "vision_model_version": "",
         },
-        "mlflow": {"enabled": False, "experiment_name": "datafactory", "tracking_uri": None},
+        "mlflow": {
+            "enabled": False,
+            "experiment_name": "datafactory",
+            "tracking_uri": "sqlite:///" + os.path.join(base_dir, "db", "mlflow.db").replace("\\", "/"),
+        },
     }
 
 

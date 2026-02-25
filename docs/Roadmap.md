@@ -68,7 +68,7 @@
 | **v2.6** | ✅ 已完成 | Smart Ingest / 高效筛查：I-帧、运动唤醒、级联检测（四板斧 3/4） |
 | **v2.7** | ✅ 已完成 | 工业级加固：P0/P1/P2/P3、Path decoupling、Batch 重命名 — **Edge 部署前最关键一步** |
 | **v2.8** | ✅ 已完成 | Ingest 预检：dedup + 首帧解码，失败项移入 quarantine — **流程模块化** |
-| **v2.9** | ✅ 已完成 | Modality 解耦：config modality，抽象层 decode_check，为 audio/vibration 预留 |
+| **v2.9** | ✅ 已完成 | Modality 解耦；加固：MLflow→db/mlflow.db、labeled 子目录、safe_copy 防静默失败、pytest 套件；根目录清理（mlflow.db、mlruns 等旧产物） |
 | **v3.x** | ⬜ 待做 | **模型就绪**：数据血缘、Transform Log、MLflow 数据→模型追溯；团队可直接跑模型 |
 | **v4.x** | ⬜ 待做 | **规模与扩展**：多模态（audio/vibration）、FFT、predictive maintenance、Edge、多节点 |
 
@@ -89,9 +89,10 @@
 | 启动自检 | startup_self_check | 路径与可写性校验 |
 | 黄金库自检（可选） | startup_golden_run | 真跑一遍 QC 冒烟 |
 | 冒烟测试 | scripts/smoke_test.py | 主流程集成测试 |
-| 环境可重置 | scripts/reset_factory.py | dry-run / for-test / db |
+| 单元/集成测试 | pytest tests/ -v -m "not e2e" | unit/integration/api 分层；requirements-dev.txt |
+| 环境可重置 | scripts/reset_factory.py、reset_config.py | dry-run / for-test / db；reset_config 恢复 settings.default.yaml |
 | 版本可追溯 | version_mapping、version_info.json、path_info | 每批规则/模型版本可审计 |
-| **待自动化** | CI 自动跑 smoke_test、v3 Docker | 当前设计已支持，流水线待接 |
+| **待自动化** | CI 自动跑 pytest、smoke_test、v3 Docker | 当前设计已支持，流水线待接 |
 
 ---
 
@@ -204,6 +205,7 @@
 - [x] **伪标签对比**：回传 vs 伪标签一致性计算（IoU 0.5 + 类别匹配），输出 `comparison_report.json` 差异报告
 - [x] **门槛与报警**：配置一致率门槛（如 95%），低于则触发邮件报警（`labeled_return.alert_via_email`），标记差异样本待复核
 - [x] **训练触发**：达标数据并入 `storage/training/Import_xxx/`，与 import_id 关联
+- [x] **标注回写批次**：达标后按 batch_id 写回 `archive/Batch_xxx/labeled/`，safe_copy 防静默失败
 - [ ] **API 上传**：可选 HTTP 上传回传压缩包（预留）
 
 **完成标准**：回传线路打通；伪标签抽检与一致性校验可运行；门槛报警生效；训练触发有明确入口。

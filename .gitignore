@@ -18,6 +18,8 @@ db/*.db
 db/*.sqlite
 __pycache__/
 *.pyc
+.pytest_cache/
+.hypothesis/
 .DS_Store
 
 # 本地私密环境变量文件（只在自己电脑上用，不提交）

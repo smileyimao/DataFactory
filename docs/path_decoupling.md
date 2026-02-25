@@ -22,8 +22,9 @@ paths:
   batch_subdirs:
     reports: "reports"      # 质量报告、工业报表
     source: "source"        # 源视频归档
-    refinery: "refinery"    # 高置信燃料
+    refinery: "refinery"   # 高置信燃料
     inspection: "inspection" # 待人工
+    labeled: "labeled"      # 标注回传写回（import_labeled_return 达标后按 batch_id）
 ```
 
 改名时只改此处，代码自动生效。

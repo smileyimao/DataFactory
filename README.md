@@ -18,7 +18,7 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 |------|------|
 | **版本** | v2.9（Modality 解耦） |
 | **主流程** | Ingest（预检 dedup + decode）→ Funnel QC（rule + vision）→ Admission（auto-pass + HITL）→ Archive |
-| **Archive 结构** | `Batch_xxx/` 下 reports、source、refinery、inspection |
+| **Archive 结构** | `Batch_xxx/` 下 reports、source、refinery、inspection、labeled（标注回传写回） |
 | **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
 | **下一目标** | v3：模型就绪（数据血缘、Transform Log、MLflow 追溯） |
 
@@ -47,7 +47,9 @@ python -m dashboard.app              # 启动中控台 http://127.0.0.1:8765
 
 First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 
-**Scripts**: `python scripts/reset_factory.py` — clean storage; `python scripts/export_for_labeling.py` — export to `storage/for_labeling`; `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training; `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB; `python tests/smoke_test.py` — smoke test.
+**Scripts**: `python scripts/reset_factory.py` — clean storage; `python scripts/export_for_labeling.py` — export to `storage/for_labeling`; `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training; `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB.
+
+**Tests**: `pip install -r requirements-dev.txt` 后 `pytest tests/ -v -m "not e2e"`；e2e 需 `storage/test/original/` 下测试视频。详见 `tests/README.md`。
 
 ---
 
@@ -131,7 +133,7 @@ Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **
 | **待标池自动更新** | `labeling_pool.auto_update_after_batch=true`: 每批归档后自动将 inspection 追加到 for_labeling。 |
 | **新旧模型对比** | `scripts/compare_models.py`: 在相同数据上跑两模型，比较检测结果，写入 MLflow/DB。 |
 | **厂长中控台** | `review.mode=dashboard`: Web 复核，单项/批量放行拒绝，无超时丢料。 |
-| **标注回传与伪标签校验** | `scripts/import_labeled_return.py`: 回传 vs 伪标签 IoU 匹配，一致率门槛报警，达标并入 training。 |
+| **标注回传与伪标签校验** | `scripts/import_labeled_return.py`: 回传 vs 伪标签 IoU 匹配，一致率门槛报警，达标并入 training；达标后按 batch_id 写回 `archive/Batch_xxx/labeled/`（safe_copy 重试防静默失败）。 |
 
 ### v2.6 — Smart Ingest / 高效筛查（四板斧）
 
@@ -149,16 +151,16 @@ Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **
 |------|------|
 | **Path decoupling / Hardware abstraction** | 批次目录名（reports/source/refinery/inspection）、batch_prefix、batch_fails_suffix 均在 `config/settings.yaml`；改名只改配置。支持 `DATAFACTORY_*` 环境变量覆盖；**environment-agnostic deployment**。 |
 | **Poka-yoke design** | `validate_config` 启动前校验；DB 失败时 `init_db` 返回 False → exit(1)（**failing fast**）；缩略图 **path traversal sanitization**（Path.resolve + relative_to）。 |
-| **Fault-tolerant I/O** | `retry_utils.safe_move_with_retry`：**backoff retry**（attempt × backoff_seconds）；DB 操作捕获 sqlite3.Error，记录日志后返回 None/False（**graceful degradation**）。 |
+| **Fault-tolerant I/O** | `retry_utils.safe_move_with_retry`、`safe_copy_with_retry`：**backoff retry**（attempt × backoff_seconds）；move/copy 失败打 warning、计入 metrics；DB 操作捕获 sqlite3.Error，记录日志后返回 None/False（**graceful degradation**）。 |
 | **Health check endpoints** | `GET /api/health` 检查 DB、目录可写、config 校验；异常时 503。 |
 | **Real-time batch metrics** | `GET /api/metrics`；`engines/metrics.py` counters；qc_engine TemporaryDirectory 自动清理；邮件发送重试。 |
 | **P3 规范** | `pyproject.toml` black + isort + mypy 配置。 |
 
 **Dashboard API**（中控台 `python -m dashboard.app` 后可用）：
 - `GET /api/health` — 健康检查（DB 连通性、目录可写、配置校验）；异常时 503。
-- `GET /api/metrics` — 简单 counters 快照（batch_processed_total、file_move_errors_total 等），便于监控告警。
+- `GET /api/metrics` — 简单 counters 快照（batch_processed_total、file_move_errors_total、file_copy_errors_total 等），便于监控告警。
 
-**新增模块**：`core/time_utils.py`（时区）、`engines/metrics.py`（counters）、`engines/retry_utils.py`（文件重试）。
+**新增模块**：`core/time_utils.py`（时区）、`engines/metrics.py`（counters）、`engines/retry_utils.py`（文件 move/copy 重试）。
 
 详见 **docs/path_decoupling.md**、**docs/industrial_standards.md**；CHANGELOG: **CHANGELOG.md**；roadmap: **docs/Roadmap.md**；settings: **docs/settings_guide.md**.
 
@@ -175,7 +177,7 @@ Current code covers **v1.x** through **v2.9** (Modality 解耦). Next target: **
 | Config | `config/` | settings.yaml, config_loader; paths and thresholds |
 | Models | `models/` | YOLO 及级联检测 .pt；vision.model_path 配置 |
 | Storage | `storage/` | raw, archive, rejected, redundant, quarantine, test, reports, for_labeling, labeled_return, training |
-| DB | `db/` | factory_admin.db (production_history, batch_metrics, model_comparison) |
+| DB | `db/` | factory_admin.db（production_history, batch_metrics）、mlflow.db（MLflow 实验记录，tracking_uri 默认） |
 | Docs | `docs/` | Roadmap, architecture, settings, smart_slicing, **architecture_mindmap** |
 | Scripts | `scripts/` | reset_factory, export_for_labeling, import_labeled_return, compare_models |
 | Tests | `tests/` | smoke_test, test_dual_gate_mlflow |

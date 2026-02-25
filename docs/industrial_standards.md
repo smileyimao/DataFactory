@@ -21,7 +21,7 @@
 
 | 问题 | 状态 |
 |------|------|
-| **文件操作无重试** | ✅ retry_utils.safe_move_with_retry，config retry.max_attempts/backoff_seconds |
+| **文件操作无重试** | ✅ retry_utils.safe_move_with_retry、safe_copy_with_retry；config retry.max_attempts/backoff_seconds；copy 失败打 warning、计入 file_copy_errors_total |
 | **数据库无错误处理** | ✅ db_tools 所有操作 try/except sqlite3.Error，记录日志，返回 None/False |
 | **无健康检查端点** | ✅ GET /api/health，检查 DB、目录可写、config 校验 |
 | **路径遍历风险** | ✅ get_thumbnail 用 Path.resolve() 严格校验，拒绝 .. / \\ |

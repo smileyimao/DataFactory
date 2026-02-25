@@ -12,7 +12,7 @@ PyYAML>=6.0
 
 # 视频/图像与质检
 opencv-python>=4.8.0
-numpy>=1.24.0
+numpy>=1.26,<2   # 1.x 避免与 PyTorch/ultralytics 冲突
 
 # 视觉模型（YOLO 8.x，禁止解析到 0.0.x 旧版）
 ultralytics>=8.0.0,<9.0.0

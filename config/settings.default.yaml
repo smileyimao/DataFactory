@@ -8,15 +8,32 @@ paths:
   redundant_archives: "storage/redundant"
   reports: "storage/reports"
   labeling_export: "storage/for_labeling"
+  labeled_return: "storage/labeled_return"
+  training: "storage/training"
   golden: "storage/golden"
+  pending_review: "storage/pending_review"
+  quarantine: "storage/quarantine"
   logs: "logs"
   db_file: "db/factory_admin.db"
+  batch_prefix: "Batch_"
+  batch_fails_suffix: "_Fails"
+  batch_subdirs:
+    reports: "reports"
+    source: "source"
+    refinery: "refinery"
+    inspection: "inspection"
+    labeled: "labeled"
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, pending_review, quarantine, logs]
 
 ingest:
   batch_wait_seconds: 8
+  poll_interval_seconds: 30
   video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
   file_stable_check_interval: 1
   file_stable_min_seconds: 2
+  pre_filter_enabled: true
+  dedup_at_ingest: true
+  decode_check_at_ingest: true
 
 quality_thresholds:
   min_brightness: 55.0
@@ -35,8 +52,20 @@ production_setting:
   save_warning: true
 
 review:
+  mode: "terminal"
   timeout_seconds: 600
   valid_inputs: ["y", "n", "all", "none"]
+
+labeling_pool:
+  auto_update_after_batch: true
+
+labeled_return:
+  consistency_threshold: 0.95
+  alert_via_email: true
+
+retry:
+  max_attempts: 3
+  backoff_seconds: 1.0
 
 email_setting:
   smtp_server: "smtp.mail.me.com"
