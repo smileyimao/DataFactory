@@ -16,11 +16,12 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 
 | Item | Status |
 |------|--------|
-| **Version** | v3.0 (数据血缘、Model Registry、MLflow 追溯) |
-| **Main flow** | Ingest (pre-filter: dedup + decode) → Funnel QC (rule + vision) → Admission (auto-pass + HITL) → Archive |
+| **Version** | v3.1 (CVAT 本地闭环 + YOLO 训练 + MLflow 注册 全链路打通) |
+| **Main flow** | Ingest → Funnel QC → Admission → Archive → CVAT export → human label → pull annotations → YOLO train → MLflow Registry |
 | **Archive structure** | `Batch_xxx/` with reports, source, refinery, inspection, labeled (labeled return write-back) |
-| **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
-| **Next target** | v3.x: Auto-modality routing (audio/lidar/vibration) + 全自动标注闭环 |
+| **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training, train_runs |
+| **Closed loop** | `main.py --auto-cvat` → CVAT Task → label → `cvat_pull_annotations.py` → `train_model.py` → `models:/vehicle_detector/N` |
+| **Next target** | v3.x: Auto-modality routing (audio/lidar/vibration); Edge deployment |
 
 ---
 
@@ -47,7 +48,27 @@ python -m dashboard.app              # Start dashboard at http://127.0.0.1:8765
 
 First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 
-**Scripts**: `python scripts/reset_factory.py` — clean storage; `python scripts/export_for_labeling.py` — export to `storage/for_labeling`; `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training; `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB; `python scripts/query_lineage.py` — v3 血缘查询; `python scripts/register_model.py path/to/model.pt --name vehicle_detector` — 注册模型到 MLflow Registry.
+**Scripts**:
+- `python scripts/reset_factory.py` — clean storage
+- `python scripts/export_for_labeling.py` — export to `storage/for_labeling`
+- `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training
+- `python scripts/cvat_pull_annotations.py --task-id <id>` — pull completed annotations from local CVAT, convert to YOLO format, trigger labeled_return merge; `--list` to list all tasks
+- `python scripts/train_model.py` — train YOLOv8 on `storage/training/`, log to MLflow, register to Model Registry; `--epochs N --batch N --model yolov8m.pt --dry-run`
+- `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB
+- `python scripts/query_lineage.py` — list recent batches; `--batch ID` batch detail; `--import-id ID` label import detail; `--trains` list training runs; `--train-id ID` training detail
+- `python scripts/register_model.py path/to/model.pt --name vehicle_detector` — register model to MLflow Registry
+
+**CVAT local setup** (one-time):
+```bash
+git clone --depth 1 https://github.com/opencv/cvat ~/Developer/cvat
+cd ~/Developer/cvat && docker compose up -d
+docker exec -it cvat_server bash -c "python manage.py createsuperuser"
+# Add to .env:
+# CVAT_LOCAL_URL=http://localhost:8080
+# CVAT_LOCAL_USERNAME=admin
+# CVAT_LOCAL_PASSWORD=yourpassword
+```
+Then run `python main.py --auto-cvat` to create a CVAT task automatically.
 
 **Optimization log**: `docs/optimization_log.md` — 产线 IE（持续优化）记录：瓶颈、根因、方案、教训。Auto pipeline 需持续迭代，优化即财富。
 
@@ -81,13 +102,14 @@ For readers familiar with industrial / MLOps terminology, the design maps as fol
 | **v2.9** | Modality decoupling: config modality, abstraction layer, reserved for audio/vibration | ✅ |
 | **v2.10** | Image 通路、auto-modality、raw 递归扫描、qualified 置信度分流、YOLO 复用 | ✅ |
 | **v3.0** | **Model-ready**: batch_lineage、label_import 血缘表；query_lineage.py；MLflow run params 含 refinery/inspection 路径；vision.model_path 支持 models:/name/version；register_model.py | ✅ |
+| **v3.1** | **Full closed loop**: local CVAT Docker deployment; `cvat_pull_annotations.py` (CVAT XML → YOLO, IoU consistency check, merge to training); `train_model.py` (YOLOv8 train, MLflow pyfunc register, model_train lineage); `main.py --auto-cvat` end-to-end | ✅ |
 | **v4** | Multimodal, FFT, Edge, multi-node, access control | Design done, pending implementation |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x** through **v3.0** (数据血缘、Model Registry、MLflow 追溯). Next target: **v3.x** (Auto-modality routing: audio/lidar/vibration; 全自动标注闭环).
+Current code covers **v1.x** through **v3.1** (CVAT 本地闭环 + YOLO 训练 + MLflow 全链路). Next target: **v3.x** (Auto-modality routing: audio/lidar/vibration; Edge deployment).
 
 ### v1.x — Production pipeline
 
@@ -179,10 +201,10 @@ See **docs/path_decoupling.md**, **docs/industrial_standards.md**; CHANGELOG: **
 | Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, retry_utils, metrics, labeling_export, labeled_return |
 | Config | `config/` | settings.yaml, config_loader; paths and thresholds |
 | Models | `models/` | YOLO and cascade .pt; vision.model_path config |
-| Storage | `storage/` | raw, archive, rejected, redundant, quarantine, test, reports, for_labeling, labeled_return, training |
-| DB | `db/` | factory_admin.db (production_history, batch_metrics), mlflow.db (MLflow experiments, default tracking_uri) |
+| Storage | `storage/` | raw, archive, rejected, redundant, quarantine, test, reports, for_labeling, labeled_return, training, **train_runs** |
+| DB | `db/` | factory_admin.db (production_history, batch_metrics, batch_lineage, label_import, **model_train**), mlflow.db (MLflow experiments, model registry) |
 | Docs | `docs/` | Roadmap, architecture, settings, smart_slicing, **architecture_mindmap** |
-| Scripts | `scripts/` | reset_factory, export_for_labeling, import_labeled_return, compare_models |
+| Scripts | `scripts/` | reset_factory, export_for_labeling, import_labeled_return, compare_models, **cvat_pull_annotations**, **train_model**, query_lineage, register_model |
 | Tests | `tests/` | unit, integration, e2e (smoke, main --test, guard), api |
 | Legacy | `legacy/` | Old entry scripts, kept for reference |
 
@@ -200,7 +222,9 @@ See **docs/architecture.md**, **docs/architecture_mindmap.md** (architecture ske
 - **v2.8**: Done. Ingest pre-filter — dedup + first-frame decode, quarantine, flow modularization.
 - **v2.9**: Done. Modality decoupling — config modality, modality_handlers, reserved for audio/vibration.
 - **v2.10**: Done. Image 通路、auto-modality、raw 递归扫描、qualified 按 YOLO 置信度分流、YOLO 复用消除二次推理。
-- **v3.x**: Design done, pending implementation. **Model-ready**: data lineage, Transform Log, MLflow data→model traceability; **Auto-modality routing**: auto-detect and route by file; Backward Compatibility.
+- **v3.0**: Done. **Model-ready**: batch_lineage, label_import tables, query_lineage.py, MLflow traceability, register_model.py.
+- **v3.1**: Done. **Full closed loop**: local CVAT Docker, cvat_pull_annotations.py (CVAT XML → YOLO + IoU check), train_model.py (YOLOv8 + MLflow pyfunc register + model_train lineage), main.py --auto-cvat.
+- **v3.x**: Next. Auto-modality routing (audio/lidar/vibration); Edge deployment hardening.
 - **v4.x**: Design done, pending implementation. **Scale & extension**: multimodal, Temporal Sync (observed_at), Resource Locking (Edge), FFT, Edge, multi-node, access control.
 
 See **docs/Roadmap.md**.
@@ -234,5 +258,6 @@ See **docs/Roadmap.md**.
 | Motion wake-up | When `motion_threshold>0`, static frames skip YOLO, log shows "4 optimizations filter" |
 | Cascade detection | When `cascade_light_model_path` configured, empty frames filtered by light model |
 | **v2.7 Industrial hardening** | `GET /api/health` returns 200; `GET /api/metrics` has counters; timezone config change affects log timezone; `validate_config` returns error on invalid config |
+| **v3.1 Closed loop** | `main.py --auto-cvat` creates CVAT task and uploads images; `cvat_pull_annotations.py --list` shows tasks; `cvat_pull_annotations.py --task-id N` pulls annotations and merges to `storage/training/`; `train_model.py --dry-run` shows dataset stats; `train_model.py` completes and writes `models:/vehicle_detector/N` + DB record; `query_lineage.py --trains` shows training history |
 
 See **docs/testing_and_audit.md** (dry run, flow tracing, legacy audit).
