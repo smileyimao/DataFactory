@@ -246,7 +246,7 @@ def _log_and_register(
 # ─── DB 血缘 ─────────────────────────────────────────────────────────────────
 
 def _record_model_train(
-    db_path: str,
+    db_url: str,
     run_id: str,
     model_name: str,
     registry_uri: str,
@@ -259,10 +259,11 @@ def _record_model_train(
     mlflow_run_id: str,
 ) -> bool:
     """写入 model_train 血缘，表不存在时自动创建。失败返回 False。"""
-    import sqlite3
+    from engines import db_connection
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
+        # Ensure table exists (init_db may not have been called for this run)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS model_train (
                 run_id       TEXT PRIMARY KEY,
@@ -281,12 +282,17 @@ def _record_model_train(
                 created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cur.execute("""
-            INSERT OR REPLACE INTO model_train
-            (run_id, model_name, registry_uri, base_model, training_dir,
-             import_ids, dataset_size, epochs, map50, map50_95, precision, recall, mlflow_run_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+        sql = db_connection.upsert_sql(
+            "model_train",
+            "run_id",
+            [
+                "run_id", "model_name", "registry_uri", "base_model", "training_dir",
+                "import_ids", "dataset_size", "epochs", "map50", "map50_95",
+                "precision", "recall", "mlflow_run_id",
+            ],
+            db_url,
+        )
+        cur.execute(sql, (
             run_id, model_name, registry_uri, base_model, training_dir,
             json.dumps(import_ids), dataset_size, epochs,
             metrics.get("map50", 0), metrics.get("map50_95", 0),
@@ -345,7 +351,7 @@ def main() -> int:
     if not os.path.isabs(training_dir):
         training_dir = os.path.join(BASE_DIR, training_dir)
     for_labeling_dir = paths.get("for_labeling", os.path.join(BASE_DIR, "storage", "for_labeling"))
-    db_path = cfg_paths.get("db_file", "")
+    db_url = paths.get("db_url", "") or cfg_paths.get("db_file", "")
 
     # 基础模型
     base_model = args.model or (cfg.get("vision") or {}).get("model_path", "") or "yolov8s.pt"
@@ -494,9 +500,9 @@ def main() -> int:
         print(f"  ⚠️  MLflow 记录失败: {e}")
 
     # ── DB 血缘 ─────────────────────────────────────────────────────────────
-    if db_path:
+    if db_url:
         ok = _record_model_train(
-            db_path=db_path,
+            db_url=db_url,
             run_id=run_id,
             model_name=args.name,
             registry_uri=registry_uri,

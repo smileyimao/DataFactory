@@ -17,21 +17,21 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from config import config_loader
-from engines import db_tools
+from engines import db_connection, db_tools
 
 
-def _list_recent_batches(db_path: str, limit: int = 10) -> None:
+def _list_recent_batches(db_url: str, limit: int = 10) -> None:
     """列出最近批次血缘。"""
-    if not db_path or not os.path.isfile(db_path):
-        print("❌ 数据库不存在或未配置 db_file")
+    if not db_url:
+        print("❌ 数据库未配置 db_file / DATABASE_URL")
         return
+    p = db_connection.ph(db_url)
     try:
-        import sqlite3
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
         cur.execute(
             "SELECT batch_id, batch_base, source_dir, refinery_dir, inspection_dir, created_at "
-            "FROM batch_lineage ORDER BY created_at DESC LIMIT ?",
+            f"FROM batch_lineage ORDER BY created_at DESC LIMIT {p}",
             (limit,),
         )
         rows = cur.fetchall()
@@ -51,9 +51,9 @@ def _list_recent_batches(db_path: str, limit: int = 10) -> None:
         print(f"❌ 查询失败: {e}")
 
 
-def _show_batch(db_path: str, batch_id: str) -> None:
+def _show_batch(db_url: str, batch_id: str) -> None:
     """展示单批次血缘详情。"""
-    info = db_tools.get_batch_lineage(db_path, batch_id)
+    info = db_tools.get_batch_lineage(db_url, batch_id)
     if not info:
         print(f"❌ 未找到批次 {batch_id}")
         return
@@ -61,28 +61,20 @@ def _show_batch(db_path: str, batch_id: str) -> None:
     print(json.dumps(info, indent=2, ensure_ascii=False))
 
 
-def _show_train(db_path: str, run_id: str) -> None:
+def _show_train(db_url: str, run_id: str) -> None:
     """展示模型训练血缘。"""
-    if not db_path or not os.path.isfile(db_path):
-        print("❌ 数据库不存在或未配置 db_file")
+    if not db_url:
+        print("❌ 数据库未配置 db_file / DATABASE_URL")
         return
+    p = db_connection.ph(db_url)
     try:
-        import sqlite3
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
-        # 表可能不存在（旧 DB）
         cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='model_train'"
-        )
-        if not cur.fetchone():
-            print("❌ model_train 表不存在，请先运行 train_model.py")
-            conn.close()
-            return
-        cur.execute(
-            "SELECT run_id, model_name, registry_uri, base_model, training_dir, "
-            "import_ids, dataset_size, epochs, map50, map50_95, precision, recall, "
-            "mlflow_run_id, created_at "
-            "FROM model_train WHERE run_id = ?",
+            f"SELECT run_id, model_name, registry_uri, base_model, training_dir, "
+            f"import_ids, dataset_size, epochs, map50, map50_95, precision, recall, "
+            f"mlflow_run_id, created_at "
+            f"FROM model_train WHERE run_id = {p}",
             (run_id,),
         )
         row = cur.fetchone()
@@ -105,31 +97,24 @@ def _show_train(db_path: str, run_id: str) -> None:
         print(f"❌ 查询失败: {e}")
 
 
-def _list_recent_trains(db_path: str, limit: int = 10) -> None:
+def _list_recent_trains(db_url: str, limit: int = 10) -> None:
     """列出最近的模型训练记录。"""
-    if not db_path or not os.path.isfile(db_path):
-        print("❌ 数据库不存在或未配置 db_file")
+    if not db_url:
+        print("❌ 数据库未配置 db_file / DATABASE_URL")
         return
+    p = db_connection.ph(db_url)
     try:
-        import sqlite3
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
         cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='model_train'"
-        )
-        if not cur.fetchone():
-            print("暂无 model_train 记录（尚未运行 train_model.py）")
-            conn.close()
-            return
-        cur.execute(
-            "SELECT run_id, model_name, registry_uri, map50, map50_95, dataset_size, created_at "
-            "FROM model_train ORDER BY created_at DESC LIMIT ?",
+            f"SELECT run_id, model_name, registry_uri, map50, map50_95, dataset_size, created_at "
+            f"FROM model_train ORDER BY created_at DESC LIMIT {p}",
             (limit,),
         )
         rows = cur.fetchall()
         conn.close()
         if not rows:
-            print("暂无 model_train 记录")
+            print("暂无 model_train 记录（尚未运行 train_model.py）")
             return
         print(f"🤖 最近 {len(rows)} 条训练记录:\n")
         for r in rows:
@@ -142,18 +127,18 @@ def _list_recent_trains(db_path: str, limit: int = 10) -> None:
         print(f"❌ 查询失败: {e}")
 
 
-def _show_import(db_path: str, import_id: str) -> None:
+def _show_import(db_url: str, import_id: str) -> None:
     """展示标注回传血缘。"""
-    if not db_path or not os.path.isfile(db_path):
-        print("❌ 数据库不存在或未配置 db_file")
+    if not db_url:
+        print("❌ 数据库未配置 db_file / DATABASE_URL")
         return
+    p = db_connection.ph(db_url)
     try:
-        import sqlite3
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
         cur.execute(
-            "SELECT import_id, batch_ids, training_dir, consistency_rate, merged_count, created_at "
-            "FROM label_import WHERE import_id = ?",
+            f"SELECT import_id, batch_ids, training_dir, consistency_rate, merged_count, created_at "
+            f"FROM label_import WHERE import_id = {p}",
             (import_id,),
         )
         row = cur.fetchone()
@@ -184,19 +169,19 @@ def main():
     parser.add_argument("--limit",    type=int, default=10, help="列表时显示条数")
     args = parser.parse_args()
 
-    cfg, _ = config_loader.get_config_and_paths(BASE_DIR)
-    db_path = cfg.get("paths", {}).get("db_file", "")
+    cfg, paths = config_loader.get_config_and_paths(BASE_DIR)
+    db_url = paths.get("db_url", "")
 
     if args.batch:
-        _show_batch(db_path, args.batch)
+        _show_batch(db_url, args.batch)
     elif args.import_id:
-        _show_import(db_path, args.import_id)
+        _show_import(db_url, args.import_id)
     elif args.train_id:
-        _show_train(db_path, args.train_id)
+        _show_train(db_url, args.train_id)
     elif args.trains:
-        _list_recent_trains(db_path, args.limit)
+        _list_recent_trains(db_url, args.limit)
     else:
-        _list_recent_batches(db_path, args.limit)
+        _list_recent_batches(db_url, args.limit)
 
 
 if __name__ == "__main__":

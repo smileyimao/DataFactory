@@ -21,7 +21,9 @@ def set_base_dir(path: str) -> None:
 def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """
     加载配置并解析常用路径。供 scripts 统一使用。
-    返回 (cfg, paths)，paths 含 for_labeling 等绝对路径。
+    返回 (cfg, paths)，paths 含 for_labeling、db_url 等绝对路径。
+
+    db_url priority: DATABASE_URL env var > cfg paths.db_file (SQLite fallback).
     """
     if base_dir is None:
         base_dir = get_base_dir()
@@ -33,7 +35,11 @@ def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any]
         for_labeling = os.path.join(base_dir, "storage", "for_labeling")
     elif not os.path.isabs(for_labeling):
         for_labeling = os.path.join(base_dir, for_labeling)
-    return cfg, {"for_labeling": for_labeling}
+    # Resolve db_url: DATABASE_URL env var wins, else fall back to SQLite file path
+    db_url = os.environ.get("DATABASE_URL", "").strip() or p.get("db_file", "")
+    # Also inject into cfg["paths"] so callers that use cfg directly get db_url too
+    cfg["paths"]["db_url"] = db_url
+    return cfg, {"for_labeling": for_labeling, "db_url": db_url}
 
 
 def get_base_dir() -> str:
@@ -149,6 +155,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     ec = data.setdefault("email_setting", {})
     ec.setdefault("max_retries", 3)
     ec.setdefault("retry_delay_seconds", 5)
+    # Inject db_url: DATABASE_URL env var wins over sqlite file path
+    data["paths"]["db_url"] = (
+        os.environ.get("DATABASE_URL", "").strip() or data["paths"].get("db_file", "")
+    )
     return data
 
 
@@ -246,6 +256,10 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "quarantine": os.path.join(base_dir, "storage", "quarantine"),
             "logs": os.path.join(base_dir, "logs"),
             "db_file": os.path.join(base_dir, "db", "factory_admin.db"),
+            "db_url": (
+                os.environ.get("DATABASE_URL", "").strip()
+                or os.path.join(base_dir, "db", "factory_admin.db")
+            ),
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
             "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"},

@@ -2,17 +2,18 @@
 # P0 工业级：所有 DB 操作捕获异常，记录日志，失败时返回 None/空
 import json
 import os
-import sqlite3
 import logging
 from typing import Optional, Dict, Any, List
+
+from engines import db_connection
 
 logger = logging.getLogger(__name__)
 
 
-def init_db(db_path: str) -> bool:
+def init_db(db_url: str) -> bool:
     """创建 production_history 与 batch_metrics 表。成功返回 True，失败记录日志并返回 False。"""
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS production_history (
@@ -24,10 +25,12 @@ def init_db(db_path: str) -> bool:
                 sync_id VARCHAR(64) NULL
             )
         """)
-        try:
-            cur.execute("ALTER TABLE production_history ADD COLUMN sync_id VARCHAR(64) NULL")
-        except sqlite3.OperationalError:
-            pass
+        # Add sync_id column if missing (SQLite only; PG CREATE TABLE already includes it)
+        if not db_connection.is_postgres(db_url):
+            try:
+                cur.execute("ALTER TABLE production_history ADD COLUMN sync_id VARCHAR(64) NULL")
+            except Exception:
+                pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS batch_metrics (
                 batch_id TEXT PRIMARY KEY,
@@ -87,20 +90,21 @@ def init_db(db_path: str) -> bool:
         conn.commit()
         conn.close()
         return True
-    except sqlite3.Error as e:
-        logger.exception("数据库初始化失败: %s — %s", db_path, e)
+    except Exception as e:
+        logger.exception("数据库初始化失败: %s — %s", db_url, e)
         return False
 
 
-def get_reproduce_info(db_path: str, md5: str) -> Optional[Dict[str, Any]]:
+def get_reproduce_info(db_url: str, md5: str) -> Optional[Dict[str, Any]]:
     """若该指纹曾量产成功，返回 {batch_id, created_at}，否则 None。DB 异常时返回 None。"""
     if not md5:
         return None
+    p = db_connection.ph(db_url)
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
         cur.execute(
-            "SELECT batch_id, created_at FROM production_history WHERE fingerprint = ? AND status = 'SUCCESS'",
+            f"SELECT batch_id, created_at FROM production_history WHERE fingerprint = {p} AND status = 'SUCCESS'",
             (md5,),
         )
         row = cur.fetchone()
@@ -114,13 +118,13 @@ def get_reproduce_info(db_path: str, md5: str) -> Optional[Dict[str, Any]]:
         except Exception:
             created_at_str = str(created_at) if created_at else "未知时间"
         return {"batch_id": batch_id, "created_at": created_at_str}
-    except sqlite3.Error as e:
-        logger.exception("数据库查重失败: db_path=%s md5=%s — %s", db_path, md5[:16] if md5 else "", e)
+    except Exception as e:
+        logger.exception("数据库查重失败: db_url=%s md5=%s — %s", db_url, md5[:16] if md5 else "", e)
         return None
 
 
 def record_production(
-    db_path: str,
+    db_url: str,
     batch_id: str,
     fingerprint: str,
     pass_rate: float,
@@ -133,22 +137,25 @@ def record_production(
         from core import time_utils
         created_at = time_utils.now_toronto().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
-        cur.execute(
-            "INSERT OR REPLACE INTO production_history (batch_id, fingerprint, pass_rate, status, created_at, sync_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (batch_id, fingerprint, pass_rate, status, created_at, sync_id),
+        sql = db_connection.upsert_sql(
+            "production_history",
+            "batch_id",
+            ["batch_id", "fingerprint", "pass_rate", "status", "created_at", "sync_id"],
+            db_url,
         )
+        cur.execute(sql, (batch_id, fingerprint, pass_rate, status, created_at, sync_id))
         conn.commit()
         conn.close()
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("数据库写入失败: batch_id=%s fingerprint=%s — %s", batch_id, fingerprint[:16] if fingerprint else "", e)
         return False
 
 
 def record_batch_metrics(
-    db_path: str,
+    db_url: str,
     batch_id: str,
     file_count: int,
     size_gb: float,
@@ -162,27 +169,30 @@ def record_batch_metrics(
 ) -> bool:
     """写入一批次的处理指标。成功返回 True，失败记录日志并返回 False。"""
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
-        cur.execute(
-            """INSERT OR REPLACE INTO batch_metrics (
-                batch_id, file_count, size_gb, elapsed_sec,
-                duration_ingest_sec, duration_qc_sec, duration_review_sec, duration_archive_sec,
-                throughput_gb_per_hour, files_per_hour
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                batch_id,
-                file_count,
-                size_gb,
-                elapsed_sec,
-                duration_ingest_sec,
-                duration_qc_sec,
-                duration_review_sec,
-                duration_archive_sec,
-                throughput_gb_per_hour,
-                files_per_hour,
-            ),
+        sql = db_connection.upsert_sql(
+            "batch_metrics",
+            "batch_id",
+            [
+                "batch_id", "file_count", "size_gb", "elapsed_sec",
+                "duration_ingest_sec", "duration_qc_sec", "duration_review_sec",
+                "duration_archive_sec", "throughput_gb_per_hour", "files_per_hour",
+            ],
+            db_url,
         )
+        cur.execute(sql, (
+            batch_id,
+            file_count,
+            size_gb,
+            elapsed_sec,
+            duration_ingest_sec,
+            duration_qc_sec,
+            duration_review_sec,
+            duration_archive_sec,
+            throughput_gb_per_hour,
+            files_per_hour,
+        ))
         conn.commit()
         conn.close()
         logger.info(
@@ -192,13 +202,13 @@ def record_batch_metrics(
             throughput_gb_per_hour,
         )
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("batch_metrics 写入失败: batch_id=%s — %s", batch_id, e)
         return False
 
 
 def record_batch_lineage(
-    db_path: str,
+    db_url: str,
     batch_id: str,
     batch_base: str,
     source_dir: str,
@@ -207,29 +217,33 @@ def record_batch_lineage(
     transform_params: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """写入批次血缘。成功返回 True，失败记录日志并返回 False。"""
-    if not db_path or not os.path.isfile(os.path.abspath(db_path)):
+    if not db_url:
+        return False
+    # SQLite file existence guard (skip for PostgreSQL)
+    if not db_connection.is_postgres(db_url) and not os.path.isfile(os.path.abspath(db_url)):
         return False
     params_json = json.dumps(transform_params or {}, ensure_ascii=False)
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
-        cur.execute(
-            """INSERT OR REPLACE INTO batch_lineage
-               (batch_id, batch_base, source_dir, refinery_dir, inspection_dir, transform_params)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (batch_id, batch_base, source_dir, refinery_dir, inspection_dir, params_json),
+        sql = db_connection.upsert_sql(
+            "batch_lineage",
+            "batch_id",
+            ["batch_id", "batch_base", "source_dir", "refinery_dir", "inspection_dir", "transform_params"],
+            db_url,
         )
+        cur.execute(sql, (batch_id, batch_base, source_dir, refinery_dir, inspection_dir, params_json))
         conn.commit()
         conn.close()
         logger.info("batch_lineage 已写入: batch_id=%s", batch_id)
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("batch_lineage 写入失败: batch_id=%s — %s", batch_id, e)
         return False
 
 
 def record_label_import(
-    db_path: str,
+    db_url: str,
     import_id: str,
     batch_ids: List[str],
     training_dir: str,
@@ -237,35 +251,44 @@ def record_label_import(
     merged_count: int,
 ) -> bool:
     """写入标注回传血缘。成功返回 True，失败记录日志并返回 False。"""
-    if not db_path or not os.path.isfile(os.path.abspath(db_path)):
+    if not db_url:
+        return False
+    if not db_connection.is_postgres(db_url) and not os.path.isfile(os.path.abspath(db_url)):
         return False
     batch_ids_json = json.dumps(batch_ids, ensure_ascii=False)
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
-        cur.execute(
-            """INSERT OR REPLACE INTO label_import
-               (import_id, batch_ids, training_dir, consistency_rate, merged_count)
-               VALUES (?, ?, ?, ?, ?)""",
-            (import_id, batch_ids_json, training_dir, consistency_rate, merged_count),
+        sql = db_connection.upsert_sql(
+            "label_import",
+            "import_id",
+            ["import_id", "batch_ids", "training_dir", "consistency_rate", "merged_count"],
+            db_url,
         )
+        cur.execute(sql, (import_id, batch_ids_json, training_dir, consistency_rate, merged_count))
         conn.commit()
         conn.close()
         logger.info("label_import 已写入: import_id=%s batch_ids=%s", import_id, batch_ids)
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("label_import 写入失败: import_id=%s — %s", import_id, e)
         return False
 
 
-def get_batch_lineage(db_path: str, batch_id: str) -> Optional[Dict[str, Any]]:
+def get_batch_lineage(db_url: str, batch_id: str) -> Optional[Dict[str, Any]]:
     """查询批次血缘。返回 dict 或 None。"""
-    if not db_path or not os.path.isfile(os.path.abspath(db_path)):
+    if not db_url:
         return None
+    if not db_connection.is_postgres(db_url) and not os.path.isfile(os.path.abspath(db_url)):
+        return None
+    p = db_connection.ph(db_url)
     try:
-        conn = sqlite3.connect(db_path)
+        conn = db_connection.connect(db_url)
         cur = conn.cursor()
-        cur.execute("SELECT batch_id, batch_base, source_dir, refinery_dir, inspection_dir, transform_params, created_at FROM batch_lineage WHERE batch_id = ?", (batch_id,))
+        cur.execute(
+            f"SELECT batch_id, batch_base, source_dir, refinery_dir, inspection_dir, transform_params, created_at FROM batch_lineage WHERE batch_id = {p}",
+            (batch_id,),
+        )
         row = cur.fetchone()
         conn.close()
         if not row:
@@ -286,6 +309,6 @@ def get_batch_lineage(db_path: str, batch_id: str) -> Optional[Dict[str, Any]]:
         else:
             out["transform_params"] = {}
         return out
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("batch_lineage 查询失败: batch_id=%s — %s", batch_id, e)
         return None

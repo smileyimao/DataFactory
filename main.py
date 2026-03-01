@@ -197,10 +197,10 @@ def main():
         if not startup.run_golden_run(cfg):
             sys.exit(1)
 
-    db_path = cfg.get("paths", {}).get("db_file")
-    if db_path:
+    db_url = cfg.get("paths", {}).get("db_url") or cfg.get("paths", {}).get("db_file")
+    if db_url:
         from engines import db_tools
-        if not db_tools.init_db(db_path):
+        if not db_tools.init_db(db_url):
             print("❌ 数据库初始化失败，请检查 db_file 路径与权限。")
             sys.exit(1)
 

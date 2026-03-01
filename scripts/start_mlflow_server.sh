@@ -17,7 +17,8 @@ source .venv/bin/activate 2>/dev/null || true
 
 HOST="0.0.0.0"
 PORT="5000"
-BACKEND="sqlite:///${BASE_DIR}/db/mlflow.db"
+# Use MLFLOW_BACKEND_URI env var if set, otherwise fall back to local SQLite
+BACKEND="${MLFLOW_BACKEND_URI:-sqlite:///${BASE_DIR}/db/mlflow.db}"
 ARTIFACTS="${BASE_DIR}/mlflow_artifacts"
 
 mkdir -p "$ARTIFACTS"

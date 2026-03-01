@@ -1,580 +1,332 @@
-# 🗺️ DataFactory Digital Factory — MLOps Evolution Roadmap (v2026.02)
+# 🗺️ DataFactory — MLOps Evolution Roadmap (v2026.03)
 
-> **Positioning**: This pipeline targets end-to-end **data ingestion & QC, admission decisions, and traceable archiving**. It can be reused directly for video QC, safety inspection, and perception data curation in mining/industrial scenarios, aligned with AI-driven safety, efficiency, and asset utilization.
-
----
-
-## 💡 Vision: Connecting AI Brains to High-Quality Data Pipelines
-
-The human brain excels at multimodal processing—touch, vision, hearing—but only when **correct data** flows **steadily and continuously** into it. Then the brain learns the environment and makes better decisions. Our work is the same: feeding high-quality data (QC'd, deduplicated, filtered) continuously to the "brain" to drive its growth.
-
-Edge computing is like the **eye**: the retina does heavy preprocessing locally (brightness adaptation, edge enhancement, motion detection) before sending structured signals to the brain, not raw pixels. The edge nodes in this pipeline (on-site QC, golden run self-check, summary-only upload to center) play a similar role: ensuring what reaches the "brain" is clean, usable, and stable data.
-
-**Industry perspective**: LLMs scaled fast because language data is effectively "labeled" by human use. Robotics and autonomy are different: companies must invest heavily in collection, cleaning, and labeling across more modalities. The real bottleneck is **data quality and supply**. This pipeline's mission is to address that.
-
-*(2026.02 design rationale and analogies recorded here for future multimodal and edge deployment.)*
+> **定位**：端到端数据采集 & 质检 → 录入决策 → 可追溯归档的 Pipeline。可直接复用于视频 QC、安全巡检、矿山/工业场景感知数据精炼，对齐 AI 驱动的安全、效率与资产利用率。
 
 ---
 
-## 📐 System Architecture (Target)
+## 💡 Vision
 
-*Main data flow: raw data enters QC, QC splits into two categories, then flows to review and archive.*
+人脑擅长多模态处理——触觉、视觉、听觉——但前提是**正确的数据**持续稳定地流入。我们的工作是同一件事：把高质量数据（质检通过、去重、过滤）持续喂给"大脑"，驱动模型迭代。
+
+边缘计算像**眼睛的视网膜**：在本地做重度预处理（亮度自适应、边缘增强、运动检测），再把结构化信号送往大脑，而不是原始像素。Pipeline 中的边缘节点（现场 QC、黄金测试自检、摘要上传中台）扮演同样角色：确保到达"大脑"的是干净、可用、稳定的数据。
+
+**行业视角**：LLM 快速扩展因为语言数据天然"已标注"。机器人与自动驾驶不同：必须在更多模态下大量投入采集、清洗、标注。真正瓶颈是**数据质量与供给**。这条 Pipeline 的使命就是解决这个问题。
+
+---
+
+## 📐 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Ingest                                                                          │
-│  raw_video/  [done]     raw_lidar/  [v4 extension]                               │
-│  Auto-modality routing  [v2.10 done, v2.10.1 both]: image/video/both by raw content; v3: audio/lidar/vibration │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Funnel QC — Two categories, extensible                                          │
-│  (1) Duplicate detection [done]  MD5/fingerprint → DB lookup → hits to redundant_archives │
-│  (1a) Ingest pre-filter [v2.8] dedup + first-frame decode → failures to quarantine/duplicate, quarantine/decode_failed │
-│  (1b) Corrupted video [v2.8 partial] first-frame decode fail → quarantine/decode_failed; full QC still in pipeline │
-│  (2) Quality check [done] blur/brightness/jitter + extensible (register_extra_check)     │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Admission [done]  Auto-pass + HITL; email summary → Terminal y/n or Dashboard Web review (no timeout loss)  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Archive [done]                                                                  │
-│  Batch_xxx/source  source video  |  Batch_xxx/reports  quality reports          │
-│  refinery (with pseudo-label .txt)  |  inspection (batch-copyable)                │
-│  rejected_material/  failed  |  redundant_archives/  duplicates                   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Ingest                                                   │
+│  raw_video/ [done]   raw_lidar/ [v4]                     │
+│  Auto-modality: image/video/both [v2.10 done]            │
+│  audio/lidar/vibration [v3 TODO]                         │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│  Funnel QC                                               │
+│  (1) 指纹去重 [done]  MD5 → DB → 命中归入 redundant      │
+│  (1a) Ingest 预检 [v2.8]  dedup + 首帧解码 → quarantine  │
+│  (2) 质量检测 [done]  blur/brightness/jitter + 可扩展     │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│  Admission [done]                                        │
+│  自动放行 + HITL；邮件摘要 → Terminal y/n 或 Dashboard   │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│  Archive [done]                                          │
+│  Batch_xxx/source  源视频                                │
+│  Batch_xxx/refinery  高置信（含伪标签 .txt）             │
+│  Batch_xxx/inspection  低置信（待人工标注）              │
+│  Batch_xxx/reports  质检报告                             │
+│  rejected_material/  废片   redundant_archives/  重复    │
+└──────────────────────────────────────────────────────────┘
 ```
 
-**Edge (v4)**: Run full pipeline on-site, send only result summaries to center (with **feature extraction upfront**: vectors + metadata; key frames/segments stored locally, **on-demand return**); **Edge auto-cleanup (v4)**: duplicates configurable delete or rolling cleanup; corrupted videos moved or deleted after readability check.
+**Edge (v4)**：现场跑全流程，仅上传摘要到中台；特征向量 + 元数据上传，关键帧本地存储按需回传；边缘自动清理重复与损坏数据。
 
 ---
 
-## 🧭 Architecture Principles & Version Overview
+## 🧭 架构原则
 
-**Unified architecture**: Flow (Ingest → Funnel QC → Admission → Archive) + tools (engines/) + decisions in core/ + config (config/). Tools return values only; decision layer reads config and judges.
-
-**Version overview** (framework unchanged, progress only):
-
-| Version | Status | Core content |
-|---------|--------|--------------|
-| **v1.x** | ✅ Done | Flow working, human-in-the-loop, traceable, industrial logging, physical archive |
-| **v1.5** | ✅ Done | Architecture refactor: config + engines + core, no new business |
-| **v2.x** | ✅ Mostly done | YOLO, version mapping, dual gate, MLflow, confidence-tiered output, pseudo-labels, extensible QC; TODO: model registry & reproducibility |
-| **v2.5** | ✅ Done | Confidence split, dashboard, inspection flattening, labeling pool auto-update, model comparison |
-| **v2.6** | ✅ Done | Smart Ingest / efficient screening: I-frame, motion wake-up, cascade detection |
-| **v2.7** | ✅ Done | Industrial hardening: P0/P1/P2/P3, Path decoupling, Batch rename — **critical for Edge deployment** |
-| **v2.8** | ✅ Done | Ingest pre-filter: dedup + first-frame decode, failures to quarantine — **flow modularization** |
-| **v2.9** | ✅ Done | Modality decoupling; hardening: MLflow→db/mlflow.db, labeled subdir, safe_copy anti-silent-fail, pytest suite; root cleanup |
-| **v2.10** | ✅ Done | **Image 通路**：YOLOv8 图片数据集全流程；**Auto-modality**：raw 按内容自动判定 image/video；**raw 递归扫描**：支持子目录/深层嵌套；**qualified 置信度分流**：高→refinery 低→inspection；**YOLO 复用**：消除二次推理 |
-| **v2.10.1** | ✅ Done | **混合模式**：raw 同时有图片+视频时自动走 both，两类均处理；`image_mode: "both"` 显式指定；decode_check 按扩展名 per-file 分发 |
-| **v2.11** | 🔶 设计完成 | **主动学习标注优先级**：时间紧优先标低 confidence + QC 异常；skip_empty_labels 丢弃未标相似帧；manifest 扩展 max_confidence/qc_env 待实现；见 docs/active_labeling_priority.md |
-| **v3.0** | ✅ Done | **数据血缘**：batch_lineage、label_import 表；pipeline 归档后自动写入；scripts/query_lineage.py 查询；**MLflow 血缘**：run params 含 refinery_dir、inspection_dir、source_archive_dir；**Model Registry**：vision.model_path 支持 models:/name/version，engines/model_registry.py 解析，scripts/register_model.py 注册 |
-| **v3.x** | 🔶 部分完成 | **Model-ready** 核心已就绪；**Auto-modality** 扩展：audio/lidar/vibration 待实现；**全自动标注闭环**：自部署 CVAT + API 打通，零成本 |
-| **v4.x** | ⬜ TODO | **Scale & extension**: multimodal (audio/vibration), FFT, predictive maintenance, Edge, multi-node |
+**统一架构**：Flow（Ingest → Funnel QC → Admission → Archive）+ 工具（engines/）+ 决策（core/）+ 配置（config/）。工具只返回值，决策层读 config 判断。
 
 ---
 
-## 🚗 Role & Collaboration Boundary (Vehicle vs Engine)
+## 📋 版本线
 
-We build the **vehicle**; the model team builds the **engine**. We own the pipeline (Ingest → Funnel QC → Admission → Archive), config, deployment, and observability; they own model training and release. We **provide interfaces** (e.g. `run_vision_scan(cfg, video_paths)`); model team supplies `.pt` or implements the interface. Same pipeline + same config when deployed to Edge; responsibility is clear.
-
----
-
-## 🔄 CI/CD & Deployability
-
-| Dimension | Current | Notes |
-|-----------|---------|-------|
-| Config vs code separation | settings.yaml + .env | Change config to switch env, no code change |
-| Single entry | main.py (single run / --guard) | Easy to test and deploy |
-| Startup self-check | startup_self_check | Path and writability validation |
-| Golden run (optional) | startup_golden_run | Real QC smoke run |
-| Smoke / full-pipeline test | pytest tests/e2e/, main.py --test | QC smoke, full pipeline, Guard mode |
-| Unit / integration test | pytest tests/ -v -m "not e2e" | unit/integration/api layers; requirements-dev.txt |
-| Env reset | scripts/reset_factory.py, reset_config.py | dry-run / for-test / db; reset_config restores settings.default.yaml |
-| Version traceability | version_mapping, version_info.json, path_info | Per-batch rule/model version auditable |
-| **TODO** | CI auto-run pytest, main.py --test, v3 Docker | Design supports it, pipeline pending |
-
----
-
-## 📈 Scale & Multi-Node (Design ready, implementation in v4)
-
-**Positioning**: The system is the company's "senses"—Ingest → QC at the edge, send only summaries to the "brain", control bandwidth and cost.
-
-**Extension forms**: Single node (current) → multi-Worker (v4 message queue + parallel) → Edge+center (v4 run four steps on-site, summaries only). Four-step skeleton unchanged; added are node count and topology.
-
-**Multi-node design points** (details in later sections, implementation in v4):
-- **Conflict avoidance**: node_id + global batch_id, no DB/dir collision.
-- **Coordination**: Partition by source (each node local raw) or center-assigned tasks.
-- **Center consolidation**: Receive summaries, cross-node dedup, distribute to labeling/training/ops.
+| 版本 | 状态 | 核心内容 |
+|------|------|---------|
+| **v1.x** | ✅ 完成 | 流程跑通，HITL，可追溯，工业日志，物理归档 |
+| **v1.5** | ✅ 完成 | 架构重构：config + engines + core，无新业务 |
+| **v2.x** | ✅ 完成 | YOLO、版本映射、双门槛、MLflow、置信度分流、伪标签、可扩展 QC |
+| **v2.5** | ✅ 完成 | 置信度分流、Dashboard、inspection 打平、待标池自动更新、模型对比 |
+| **v2.6** | ✅ 完成 | 高效筛选：I-frame、运动唤醒、级联检测 |
+| **v2.7** | ✅ 完成 | 工业加固：P0/P1/P2/P3、Path decoupling、批次重命名 |
+| **v2.8** | ✅ 完成 | Ingest 预检：dedup + 首帧解码，失败进 quarantine |
+| **v2.9** | ✅ 完成 | 模态解耦；MLflow→db/mlflow.db；pytest 套件；根目录清理 |
+| **v2.10** | ✅ 完成 | 图片通路；Auto-modality；raw 递归扫描；qualified 置信度分流；YOLO 复用 |
+| **v2.10.1** | ✅ 完成 | 混合模式 both：图片+视频同时处理；按扩展名 per-file decode_check |
+| **v2.11** | 🔶 设计完成 | 主动学习标注优先级（manifest max_confidence/qc_env 待实现） |
+| **v3.0** | ✅ 完成 | 数据血缘（batch_lineage、label_import）；MLflow 血缘；Model Registry |
+| **v3.1** | ✅ 完成 | 本地 CVAT 闭环；YOLO 训练全链路；MLflow 注册；model_train 血缘 |
+| **v3.2** | ✅ 完成 | **PostgreSQL 多人协作 DB**；SQLite 回退兼容；docker-compose 一键启动 |
+| **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
+| **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制 |
 
 ---
 
-## 🔀 Multi-Node Deployment: Conflict, Coordination & Center Summary
+## 🚗 角色与协作边界
 
-| Conflict type | Mitigation |
-|---------------|------------|
-| Batch ID / DB / dir collision | node_id + local timestamp (or UUID) as global batch_id |
-| Duplicate processing of same data | Source partitioning (each node consumes specified dir only) or center-assigned tasks |
-
-**Center**: Receive summaries from nodes → store in DB, dedup, distribute by batch/node/time. **Implementation** see Phase 3 "Multi-node deployment".
+我们造**车**；模型团队造**引擎**。我们负责 Pipeline（Ingest → Funnel QC → Admission → Archive）、配置、部署、可观测性；他们负责模型训练与发布。接口约定：`run_vision_scan(cfg, video_paths)`；模型团队提供 `.pt` 或实现该接口。Edge 部署时同一套 Pipeline + 同一份 config，责任清晰。
 
 ---
 
-## 🏗️ Phase 1: Standardization & Refined Production (v1.x) — ✅ Done
+## 🔄 CI/CD & 可部署性
 
-*Core: Industrial admission, human-in-the-loop, traceable*
-
-- [x] Env variable management (.env for secrets)
-- [x] Batch review pipeline (centralized approval, one email, y/n/all/none)
-- [x] Toronto timezone localization (logs, email, DB)
-- [x] Industrial logging (`logs/factory_YYYY-MM-DD.log`)
-- [x] Physical archive (rejected_material/Batch_ID_Fails, redundant_archives, failed items `name_scorepts`)
-- [ ] Data cleaning & labeling pipeline extension (for ML integration)
-
----
-
-## 🔧 Phase 1.5: Architecture Refactor (v1.5) — ✅ Done
-
-*Core: Flow + tools + decisions + config split, foundation for v2*
-
-- [x] Centralized config (config/settings.yaml, config_loader)
-- [x] Tool extraction (engines/: quality_tools, fingerprinter, db_tools, notifier, file_tools, report_tools, production_tools)
-- [x] Decision separation (qc_engine, reviewer, archiver)
-- [x] Flow refactor (core/ingest, qc_engine, reviewer, archiver, pipeline, guard)
-- [x] Entry & compatibility (main.py single run / --guard)
-- [x] Basic metrics (batch file count, size, duration, throughput, etc.)
+| 维度 | 当前状态 | 备注 |
+|------|---------|------|
+| 配置与代码分离 | settings.yaml + .env | 切环境改 config，不改代码 |
+| 单一入口 | main.py（单次 / --guard） | 易测试易部署 |
+| 启动自检 | startup_self_check | 路径与可写性校验 |
+| 黄金测试（可选） | startup_golden_run | 真实 QC 冒烟 |
+| 冒烟 / 全链路测试 | pytest tests/e2e/, main.py --test | QC 冒烟、全流程、Guard 模式 |
+| 单元 / 集成测试 | pytest tests/ -v -m "not e2e" | unit/integration/api 层 |
+| 环境重置 | scripts/reset_factory.py, reset_config.py | dry-run / for-test / db |
+| 版本可追溯 | version_mapping, version_info.json, path_info | 每批次规则/模型版本可审计 |
+| **数据库** | **PostgreSQL（docker compose up -d）** | **DATABASE_URL 未设置自动回退 SQLite** |
+| **TODO** | CI 自动跑 pytest, main.py --test | 设计支持，pipeline 待建 |
 
 ---
 
-## 🧠 Phase 2: Vision & Automated Admission (v2.x) — ✅ Mostly Done
+## 📈 Scale & 多节点（设计就绪，v4 实现）
 
-*Core: YOLO, version mapping, dual gate, MLflow, confidence-tiered output, extensible QC*
+**定位**：系统是公司的"感官"——边缘 Ingest+QC，仅摘要上传"大脑"，控制带宽与成本。
 
-**Done**
+**扩展形态**：单节点（当前）→ 多 Worker（v4 消息队列+并行）→ Edge+中台（v4 现场跑四步，仅摘要上传）。四步骨架不变，变的是节点数量与拓扑。
 
-- [x] **Computer vision QC**: YOLO singleton, config-driven sampling & inference (conf/iou/device etc.), decisions in qc_engine
-- [x] **Version mapping**: Batch_xxx/reports/version_info.json, path_info.version_mapping, for lineage & audit
-- [x] **Dual gate admission**: dual_gate_high / dual_gate_low; high auto-pass, low auto-reject, middle human review
-- [x] **MLflow tracking**: mlflow.enabled; batch-level params/metrics
-- [x] **Confidence-tiered output**: refinery, inspection (manifest, pseudo-label .txt), quality reports in Batch_xxx/reports
-- [x] **Extensible QC**: quality_tools.register_extra_check, decide_env unified dispatch
-
-**Done (v3.0)**
-
-- [x] **Model registry & reproducibility**: vision.model_path 支持 models:/name/version；engines/model_registry.py 解析；scripts/register_model.py 注册；batch_lineage、label_import 血缘表
-
-**Planned (no main flow change)**
-
-- **Multi-model**: Config/registry + unified inference interface, select by task after registration
-- **Model param UI**: Per-model config or small Web/API; model owners edit only their params; can integrate with MLflow
+| 冲突类型 | 规避方案 |
+|---------|---------|
+| Batch ID / DB / 目录冲突 | node_id + 本地时间戳（或 UUID）作全局 batch_id |
+| 同数据重复处理 | 源分区（各节点只消费指定目录）或中台分发任务 |
 
 ---
 
-## 🔄 Phase 2.5: Data Loop & Continuous Learning (v2.5) — 🔶 Partially Done
+## 🏗️ Phase 1：标准化与精益生产（v1.x）— ✅ 完成
 
-*Core: Confidence split → labeling pool / pseudo-labels → training trigger → model comparison*
-
-**Done**
-
-- [x] **Confidence split**: Integrates with dual gate; high auto-pass, low auto-reject, middle to inspection
-- [x] **Confidence-tiered output**: refinery, inspection, with manifest and pseudo-label .txt
-- [x] **High-confidence pseudo-labels**: Fuel and human-review write YOLO-format .txt (empty when no detection), for labeling tool alignment
-- [x] **YOLO screening output**: `production_setting.save_only_screened=true` outputs only "Warning or detected" frames, reduces full slicing (see docs/smart_slicing.md)
-
-**TODO**
-
-- [x] **Inspection flattening**: Normal/Warning merged, only manifest.json + images + txt, for for_labeling import (`production_setting.human_review_flat=true`)
-- [x] **Labeling pool auto-update**: Low-confidence/uncertain samples auto-write to for_labeling + manifest, filter by batch or threshold (`labeling_pool.auto_update_after_batch=true`, auto-append after archive)
-- [x] **Model comparison**: New vs online/registered model offline or online comparison, results to MLflow/DB, supports release decision (`scripts/compare_models.py --new X --baseline Y --data DIR`)
-
-### Labeled Return & Pseudo-Label Consistency Validation (Multi-Stage Purification)
-
-*Goal: Establish labeling team return path, use pseudo-label sampling for consistency check, iterate for purer AI fuel.*
-
-**Flow**
-
-1. **Pseudo-label sampling**: Sample from refinery (e.g. 5%–10%) to for_labeling for labeling team.
-2. **Return path**: After labeling, team returns in one batch (YOLO/COCO etc.), lands in specified dir (e.g. `storage/labeled_return/`).
-3. **Consistency comparison**: Return labels vs pseudo-labels per-image (IoU, class, box count), compute consistency rate.
-4. **Threshold & alert**: Set diff threshold (e.g. consistency < 95% auto-alert), require re-review of diffs.
-5. **Iterative purification**: Update labels after review → compare again → merge to training when compliant; continue review if not. Multi-round iteration for purer AI fuel.
-
-**Implementation**
-
-- [x] **Return receive**: Labeled data one-shot import (dir/zip), write to `storage/labeled_return/` and create Import_YYYYMMDD_HHMMSS
-- [x] **Pseudo-label comparison**: Return vs pseudo-label consistency (IoU 0.5 + class match), output `comparison_report.json` diff report
-- [x] **Threshold & alert**: Config consistency threshold (e.g. 95%), below triggers email alert (`labeled_return.alert_via_email`), mark diff samples for review
-- [x] **Training trigger**: Compliant data merged to `storage/training/Import_xxx/`, linked to import_id
-- [x] **Label write-back to batch**: After compliant, write back to `archive/Batch_xxx/labeled/` by batch_id, safe_copy prevents silent failure
-- [ ] **API upload**: Optional HTTP upload for return zip (reserved)
-
-**Done criteria**: Return path working; pseudo-label sampling and consistency check runnable; threshold alert active; training trigger has clear entry.
-
-### Active Labeling Priority (v2.11 Design)
-
-*Goal: Prioritize high-value images for labeling when time is limited; iterate until model accuracy is satisfactory.*
-
-**Design** (see **docs/active_labeling_priority.md**):
-
-1. **Value tiers**: inspection (low confidence) > refinery (high confidence); within inspection, lower confidence = higher value.
-2. **QC bonus**: Frames with jitter/black/blur/brightness (Warning) are edge cases—prioritize when image is still readable.
-3. **Sort formula**: `priority = f(1 - max_confidence, QC_warning_bonus)`; export manifest sorted by priority.
-4. **Skip empty**: `labeled_return.skip_empty_labels=true`—unlabeled similar frames discarded on merge.
-5. **Iteration loop**: Label high-value → return → merge → retrain → re-run pipeline → repeat until accuracy satisfied.
-
-**Done**
-
-- [x] skip_empty_labels: merge to training skips images with empty .txt
-- [x] Design doc: docs/active_labeling_priority.md
-
-**TODO**
-
-- [ ] production_tools: write max_confidence, qc_env to manifest
-- [ ] labeling_export: manifest includes priority fields; --sort-by-priority
-- [ ] export_for_cvat: optional priority-sorted export
+- [x] 环境变量管理（.env 存密钥）
+- [x] 批次复核 Pipeline（集中审批，一封邮件，y/n/all/none）
+- [x] 多伦多时区本地化（日志、邮件、DB）
+- [x] 工业日志（logs/factory_YYYY-MM-DD.log）
+- [x] 物理归档（rejected_material/Batch_ID_Fails, redundant_archives）
 
 ---
 
-## 🖥️ Dashboard & Remote Access (Done + Reserved Interfaces)
+## 🔧 Phase 1.5：架构重构（v1.5）— ✅ 完成
 
-*Core: Web review replaces Terminal blocking, extension points for remote ops*
-
-**Done**
-
-- [x] **Dashboard**: When `review.mode=dashboard`, blocked items queue; `python -m dashboard.app` starts Web UI
-- [x] **Queue review**: Thumbnails, scores, rule breakdown, single/batch approve or reject, no 600s timeout data loss
-- [x] **LAN access**: `host=0.0.0.0`, same-network devices can access `http://<machine-IP>:8765`
-
-**Remote access reserved (v3 or later)**
-
-| Capability | Current | Reserved / TODO |
-|------------|---------|-----------------|
-| Listen address | `0.0.0.0` (LAN supported) | Config `paths.dashboard_host` for extension |
-| Port | `paths.dashboard_port` | Configurable |
-| WAN access | Manual port forward / VPN | Reserved: reverse proxy docs, tunnel example |
-| Auth | None | Reserved: API middleware or Basic Auth, frontend login |
-| Multi-user / access control | None | Reserved: align with v4 access control |
-
-**Implementation note**: Dashboard is FastAPI; add auth middleware, `/api/` prefix, CORS in `dashboard/app.py` later without changing main flow.
+- [x] 集中配置（config/settings.yaml, config_loader）
+- [x] 工具提取（engines/：quality_tools, fingerprinter, db_tools, notifier…）
+- [x] 决策分离（qc_engine, reviewer, archiver）
+- [x] 流程重构（core/ingest, qc_engine, reviewer, archiver, pipeline, guard）
+- [x] 基础指标（批次文件数、大小、耗时、吞吐量等）
 
 ---
 
-## ⚡ Efficient Screening (Industry Four Optimizations)
+## 🧠 Phase 2：视觉与自动录入（v2.x）— ✅ 完成
 
-*Goal: Reduce compute in "decode + detect" phase, not just output filtering. All four can plug into current pipeline for "coarse then fine" wake-up chain.*
-
-### 1. Key-Frame / I-Frame Extraction
-
-- **Principle**: Video = I-frames (full image) + P/B-frames (pixel diff). Scan only I-frames (e.g. 1–2/sec); if I-frame has no target, skip P/B decode.
-- **Integration**: In `production_tools` or `engines/frame_io`, use OpenCV/FFmpeg to read I-frames only, run quality + YOLO on I-frames; decode P/B for fine-grained only when hits.
-- **Effect**: Compute can drop ~90% (depends on GOP).
-- [x] **Done**: `engines/frame_io.py`, config `vision.use_i_frame_only`; production_tools and vision_detector support; needs ffprobe, fallback to per-second sampling.
-
-### 2. Motion Vector / Optical Flow Wake-Up
-
-- **Principle**: Use optical flow or frame diff for motion gradient; when scene is static (no vehicle/person), **don't run YOLO**; only when motion exceeds threshold (e.g. vehicle enters) wake detection.
-- **Integration**: In sampling loop, compute OpenCV optical flow or simple frame diff first; below threshold skip detection and output, only mark manifest as "static".
-- **Effect**: Fewer GPU wake-ups, lower power and latency.
-- [x] **Done**: `engines/motion_filter.py`, config `vision.motion_threshold` (0=off); used with `save_only_screened`.
-
-### 3. Embedding & Re-ID (Vector Index)
-
-- **Principle**: Small model converts image/person to 128/512-dim vector, write to vector DB (Milvus/Faiss); query by "search numbers" not "scan video", millisecond "who appeared in which segment".
-- **Integration**: In production or separate indexing task, extract embedding from output key frames (or I-frames), write to vector DB with `batch_id + timestamp`; retrieval API returns (video_id, start_ts, end_ts).
-- **Effect**: Supports "who-where" retrieval and reports, parallel to QC/archive, not replacing YOLO.
-- [ ] **TODO**: Embedding model, vector DB selection & write, retrieval API; optional Re-ID model integration.
-
-### 4. Cascaded Detectors
-
-- **Principle**: Tiny, low-precision model (hundreds KB) for **pre-screening**; only when it says "something" run YOLO or larger model.
-- **Integration**: Add "light detection" layer before `vision_detector` or sampling loop; only when light output exceeds conf threshold call existing `run_vision_scan`.
-- **Effect**: Empty frames filtered by light model, large model only on candidate frames; throughput and cost optimized.
-- [x] **Done**: Config `vision.cascade_light_model_path`, `cascade_light_conf`; combined with I-frame and motion wake-up.
-
-#### 4.1 Cascade 领域定制（矿车等）— TODO
-
-- **问题**：COCO 级联对 car/truck 有效，但矿车等非 COCO 目标会被误判为空帧而过滤，漏检。
-- **方案**：用**领域数据**训练轻量模型（如 yolov8n），作为 `cascade_light_model_path`。空帧由级联过滤，有目标帧才跑主模型。
-- **效果**：省算力 + 不漏检；IE 优化无止境，持续为公司降本。
-- [ ] **TODO**：矿车场景时，训练 mining_truck_nano.pt，配置为 cascade；文档化「领域级联」最佳实践。
-
-### Summary
-
-| Tech | Stage | Dependency | Relation to pipeline |
-|------|-------|-------------|----------------------|
-| I-frame | Decode | OpenCV/FFmpeg | Replace or supplement "per-second full decode" ✅ |
-| Motion wake-up | Pre-sample/detect | OpenCV flow/diff | Add check in sampling loop ✅ |
-| Embedding/Re-ID | Post-output / separate task | Vector DB, small model | Parallel to QC, retrieval & "who-where" |
-| Cascade | Detect | Light .pt / ONNX | Add stage before vision_detector ✅；矿车等用领域级联（TODO） |
-
-All four combinable: e.g. **I-frame + motion wake-up** reduce decode and wake-ups, **cascade** reduce large-model calls, **Embedding/Re-ID** for retrieval and reports. See **docs/smart_slicing.md** and future "efficient screening" docs.
+- [x] 计算机视觉 QC：YOLO 单例，config 驱动采样与推理
+- [x] 版本映射：Batch_xxx/reports/version_info.json，路径信息含版本，支持血缘与审计
+- [x] 双门槛录入：dual_gate_high / dual_gate_low；高自动放行，低自动拒绝，中间人工复核
+- [x] MLflow 跟踪：mlflow.enabled；批次级参数/指标
+- [x] 置信度分流输出：refinery、inspection（manifest、伪标签 .txt）、质检报告
+- [x] 可扩展 QC：quality_tools.register_extra_check，decide_env 统一调度
 
 ---
 
-## 🍭 Auto-Modality Routing (Auto-Detect & Route by File) — ⬜ v3 TODO
+## 🔄 Phase 2.5：数据闭环与持续学习（v2.5）— ✅ 完成
 
-*Core: Ingest auto-detects modality from format and content, no manual config; mixed data (video+audio+LiDAR+vibration) one scan, auto-routed.*
+- [x] 置信度分流：高自动放行，低自动拒绝，中间进 inspection
+- [x] 高置信伪标签：refinery + inspection 写 YOLO 格式 .txt
+- [x] 智能切片：save_only_screened=true 只输出"Warning 或检测到目标"帧
+- [x] Inspection 打平：Normal/Warning 合并，只有 manifest.json + 图片 + txt
+- [x] 待标池自动更新：低置信/不确定样本自动写入 for_labeling + manifest
+- [x] 模型对比：新模型 vs 在线/注册模型离线或在线对比，结果写 MLflow/DB
 
-### Design Goals
+### 标注回传 & 伪标签一致性验证
 
-| Current | Target |
-|---------|--------|
-| `config modality: video` manual | Auto-detect: extension + optional content probe → route to channel |
-| Single modality per batch | Group by modality, each batch uses own QC/Archive handler |
-| Change data type requires config edit | Zero-config: raw dir mixed, auto-route |
+- [x] 回传接收：标注数据一次性导入，写入 storage/labeled_return/，创建 Import_YYYYMMDD_HHMMSS
+- [x] 伪标签对比：回传 vs 伪标签一致性（IoU 0.5 + class match），输出 comparison_report.json
+- [x] 阈值与告警：config 一致性阈值（默认 95%），低于则邮件告警，标记差异样本待复核
+- [x] 训练触发：合规数据并入 storage/training/Import_xxx/，关联 import_id
+- [x] 标签写回批次：合规后写回 archive/Batch_xxx/labeled/，safe_copy 防静默失败
+- [ ] API 上传：可选 HTTP 上传 return zip（预留）
 
-### Implementation Steps
+### 主动学习标注优先级（v2.11）
 
-#### 1. Detection (Not Fingerprint)
-
-**Not fingerprint**: Fingerprint (MD5) is for dedup (content identity), not format. Modality detection uses:
-
-| Level | Method | Notes |
-|-------|--------|------|
-| **Extension** | Primary, O(1) | .mp4→video, .wav→audio, .pcd→lidar, .csv→vibration |
-| **Magic bytes** | Optional, read header | .bin distinguish lidar point cloud vs vibration binary |
-| **Content probe** | Optional | .mp4 ffprobe stream type (video vs audio-only); .csv header for columns |
-
-**Priority**: Extension → hit registry then return; miss or ambiguous (e.g. .bin) → Magic bytes; still unknown → `unknown`.
-
-#### 2. Format→Modality Registry
-
-| Format/Extension | Modality | Notes |
-|------------------|----------|-------|
-| .mp4, .mov, .avi, .mkv | video | Video container; ffprobe for audio-only |
-| .wav, .mp3, .flac, .m4a | audio | Audio |
-| .pcd, .las, .ply | lidar | LiDAR point cloud |
-| .bin (point cloud) | lidar | Needs Magic bytes or config |
-| .csv, .bin (vibration) | vibration | Vibration; .csv header, .bin Magic bytes |
-| Unregistered / unknown | unknown | **To quarantine/unknown_format/**, not silently drop |
-
-#### 3. Ingest Changes
-
-```
-get_video_paths() / get_raw_paths()
-    → Extend to scan_raw(cfg, paths)
-    → Per file: detect_modality(path) → "video" | "audio" | "lidar" | "vibration" | "unknown"
-    → Group by modality: {video: [p1,p2], audio: [p3], ...}
-    → Return groups, or flat with modality tag per item
-```
-
-**pre_filter**: Before or after dedup/decode_check, call `modality_handlers.decode_check` by modality.
-
-#### 4. Pipeline Routing
-
-- **Option A**: Batch by modality, each batch runs pipeline (batch_id can have modality suffix, e.g. `Batch_20260224_video`)
-- **Option B**: Single mixed batch, pipeline dispatches by file modality to different QC/Archive logic
-
-Recommend **Option A**: Clear batch semantics, simple DB/archive structure.
-
-#### 5. Config Role
-
-| Config | Meaning |
-|--------|---------|
-| `modality_filter: null` | Process all detected modalities (default) |
-| `modality_filter: "video"` | Only video, others skip or quarantine |
-| `modality_filter: ["video", "audio"]` | Whitelist, only listed modalities |
-
-#### 6. Unknown Type Handling
-
-- **Default**: Move to `quarantine/unknown_format/`, same level as duplicate, decode_failed; WARNING log.
-- **Configurable**: `unknown_format_action: "quarantine"` (default) or `"skip"` (log only, no move).
-- **Principle**: No silent drop; human can periodically check quarantine/unknown_format/ and decide to add to registry or delete.
-
-### Relation to Current Architecture
-
-- **modality_handlers** (v2.9): Already has `decode_check(path, cfg)` by modality; entry changes from config to `detect_modality(path)` return
-- **Ingest pre_filter** (v2.8): Add modality detection in or before pre_filter
-- **Extension**: New modality only needs format→modality registration + handler, no main flow change
-
-### Done Criteria
-
-- [ ] `engines/modality_detector.py`: `detect_modality(path) -> str`, based on extension + optional ffprobe
-- [ ] Ingest: `scan_raw` returns grouped by modality; pre_filter calls decode_check per group
-- [ ] Pipeline: Support batch by modality or dispatch within single batch
-- [ ] Config: `modality_filter` replaces `modality`, backward compatible (modality: video treated as filter)
-- [ ] Unknown format: Default to `quarantine/unknown_format/`, config `unknown_format_action`
-- [ ] **Backward Compatibility**: Old `modality: "video"` equals `modality_filter: ["video"]`, zero-change migration
-
-### Config Backward Compatibility — v3 Required
-
-**Scenario**: Smooth migration for large deployments; old config `modality: "video"` must not break on update.
-
-**Design**:
-
-- **Keep** `modality: "video"` semantics: Treat as `modality_filter: "video"`, only process video, others skip.
-- **Compatible** `modality: "audio"`, `modality: "lidar"` etc.: Equals `modality_filter: ["audio"]`.
-- **New config** `modality_filter: null` or `["video","audio"]`: Explicit control.
-- **Migration**: config_loader reads; if `modality` exists and no `modality_filter`, set `modality_filter = [modality]`; old config works with zero change.
+- [x] skip_empty_labels：并入训练时跳过空 .txt 帧
+- [x] 设计文档：docs/active_labeling_priority.md
+- [ ] production_tools：写 max_confidence、qc_env 到 manifest
+- [ ] labeling_export：manifest 含优先级字段；--sort-by-priority
+- [ ] export_for_cvat：可选按优先级排序导出
 
 ---
 
-## 🧬 Phase 3: Model-Ready & Deep Lineage (v3.x) — 🔶 部分完成
+## 🖥️ Dashboard & 远程访问（完成 + 预留接口）
 
-*Core: Data→model traceable, team can run models directly; Deep lineage closes MLflow loop*
+- [x] Dashboard：review.mode=dashboard 时入队；python -m dashboard.app 启动 Web UI
+- [x] 队列复核：缩略图、评分、规则明细、单条/批量放行或拒绝，无 600s 超时丢失
+- [x] 局域网访问：host=0.0.0.0，同网设备访问 http://<机器IP>:8765
 
-**Goal**: After v3, model team can train directly from pipeline output and trace "which model used which data".
-
-### Data Lineage & Transform Log (v3.0 ✅)
-
-- [x] **Transform Log**: batch_lineage 表记录 batch_base、source_dir、refinery_dir、inspection_dir、transform_params（gate、algorithm_version、vision_model_version）
-- [x] **Lineage visualization**: scripts/query_lineage.py — `--batch`、`--import-id` 或默认列出最近批次
-- [x] **Label write-back link**: label_import 表记录 import_id、batch_ids、training_dir、consistency_rate、merged_count；import_labeled_return 达标并入后自动写入
-
-### MLflow Data→Model Traceability (v3.0 ✅)
-
-- [x] **Dataset link**: MLflow run params 含 refinery_dir、inspection_dir、source_archive_dir
-- [x] **Model lineage**: batch_lineage + label_import 元数据；可反查训练数据来源
-- [x] **Reproducibility**: query_lineage.py 给定 batch_id 反查 transform_params 与路径
-
-### Model Registry (v3.0 ✅)
-
-- [x] **config 引用 Registry**: vision.model_path、cascade_light_model_path 支持 `models:/name/version`；engines/model_registry.py 解析并下载到 models/registry_cache/
-- [x] **注册脚本**: scripts/register_model.py 将本地 .pt 注册到 MLflow Model Registry
-
-### Labeling Workflow
-
-- [ ] Label Studio/CVAT integration; inspection organized by Batch, batch-copyable
-- [x] After labeling, write back to DB, link to batch/model version（label_import 表，v3.0）
-
-#### 全自动标注闭环（v3 目标）
-
-*Goal: 自建 CVAT 开源版，API 全免费，闭环全自动化，零成本。*
-
-- [ ] **自部署 CVAT**：在本地电脑或公司服务器部署 CVAT 开源版（Docker），无 SaaS 费用
-- [ ] **API 全自动**：DataFactory 通过 CVAT REST API 自动创建 Project/Task、上传图片+伪标签、拉取标注结果
-- [ ] **闭环打通**：for_labeling → CVAT API 导入 → 人工/半自动标注 → API 导出 → import_labeled_return → training，全程脚本化
-- [ ] **零额外成本**：无 Label Studio Cloud、Roboflow 等按量付费；自托管即无限 API 调用
+| 能力 | 当前 | 预留 / TODO |
+|------|------|------------|
+| 监听地址 | 0.0.0.0（局域网） | config paths.dashboard_host 可扩展 |
+| 端口 | paths.dashboard_port 可配 | — |
+| 公网访问 | 手动端口转发 / VPN | 预留：反向代理文档、隧道示例 |
+| 鉴权 | 无 | 预留：API 中间件或 Basic Auth |
+| 多用户 / 权限 | 无 | 预留：对齐 v4 访问控制 |
 
 ---
 
-## 🐳 Phase 4: Scale & Extension (v4.x) — ⬜ TODO
+## ⚡ 高效筛选（四项优化）
 
-*Core: High throughput, multimodal, Edge, multi-node, access control*
+| 技术 | 阶段 | 依赖 | 状态 |
+|------|------|------|------|
+| I-frame 提取 | 解码 | OpenCV/FFmpeg | ✅ 完成 |
+| 运动向量唤醒 | 预采样/检测 | OpenCV flow/diff | ✅ 完成 |
+| Embedding/Re-ID | 后输出 / 独立任务 | 向量 DB、小模型 | ⬜ TODO |
+| 级联检测 | 检测 | 轻量 .pt / ONNX | ✅ 完成；矿车等领域级联 TODO |
 
-### Task Orchestration & Monitoring
-
-- [ ] Task state machine (Pending/Processing/Reviewing/Done/Fail)
-- [ ] Multi-process / distributed Worker (message queue + parallel QC)
-- [ ] Container deployment (Docker) + Prometheus (throughput, latency, pass rate) + Grafana
-
-### Edge Deployment
-
-- [ ] **Scenario**: Run full pipeline on-site, send only result summaries (KB); center consolidates, reviews, archives
-- [ ] **Vehicle→site transfer**: Data lands as Ingest input when vehicle returns to hub, connects to existing guard
-- [ ] **Tech**: Model lightweighting, edge↔center sync (result upload, config/model download), model hot-update, local data short retention
-- [ ] **Privacy & security**: Raw data stays local; center receives summaries/key frames/features only; Edge auto-cleanup duplicates and corrupted (see framework above)
-
-#### Feature Extraction Upfront + On-Demand Return (Mining Bandwidth Scenario)
-
-*Goal: In bandwidth-limited scenarios, Edge returns only light vectors and summaries; key frames/segments stored locally, center pulls on demand.*
-
-| Role | Behavior |
-|------|----------|
-| **Edge (mine)** | Run full pipeline (can use four optimizations) → key frames/segments local; extract embedding from key frames → **return only**: vectors + manifest/summary (time, camera, targets, etc.) |
-| **Center** | Receive vectors, store, retrieval/reports/review; **on demand** request "camera X, time range Y" key frames or short clips from Edge → pull back for labeling/training/archive |
-
-**TODO**
-
-- [ ] **Return protocol**: Edge payload (vectors + metadata + optional thumbnail URL/ID), align with or extend existing summary format
-- [ ] **Vector–key-frame link**: Edge writes vectors with `(node_id, batch_id, timestamp, camera)`, center retrieval maps to "requestable segments"
-- [ ] **On-demand pull API**: Center → Edge request "node, time range, camera" key frames or segments; Edge returns packed file or stream, lands in center `storage/` then existing Ingest/QC
-- [ ] **Deployment**: Edge per **site/hub** (one node per mine or per room), not per camera; same pipeline code at center and Edge, config distinguishes "summary upload only" vs "full local output"
-
-**Relation to four optimizations**: I-frame, motion wake-up, cascade on Edge further reduce compute and bandwidth; Embedding is "feature upfront", vectors returned for center retrieval then trigger on-demand return.
-
-### Multi-Node Deployment
-
-- [ ] node_id and global batch_id (MAC/hostname when unconfigured)
-- [ ] Node: Report summaries (HTTP/queue), offline retry (Store-and-Forward)
-- [ ] Center: Receive, store, cross-node dedup, distribute (labeling pool manifest / API)
-- [ ] Config & deployment docs (main vs node params)
-
-### Multimodal (audio/vibration, LiDAR)
-
-- [ ] **audio/vibration**: modality_handlers extension, FFT spectrum, predictive maintenance
-- [ ] **raw_lidar/**: Ingest (.pcd/.las/.ply), point cloud QC, timestamp alignment with video
-- [ ] Unified duplicate+quality policy, Batch_xxx/video and Batch_xxx/lidar aligned
-
-#### Cross-Modal Temporal Sync — v4
-
-**Scenario**: Mining vehicle has strong vibration at 10:00; need video and vibration at 10:00 for multimodal fusion.
-
-**Design**: `detect_modality` also extracts **Timestamp**. All modalities must have unified field `observed_at` (or `timestamp`) on storage.
-
-| Modality | Timestamp source |
-|----------|------------------|
-| video | File metadata (creation_time), or first-frame PTS, or filename |
-| audio | Same |
-| lidar | Point cloud frame header, or filename |
-| vibration | CSV first column/time column, or filename |
-
-**Storage**: DB, manifest, MLflow all have `observed_at`; MLOps can do cross-modal correlation by time window (e.g. "10:00±5s video+vibration").
-
-#### Resource Locking — v4 Edge
-
-**Scenario**: Video uses GPU, vibration uses CPU/memory; multimodal concurrency can overload Edge box.
-
-**Design**: Add **resource declaration** in `modality_handlers`. Check before starting handler.
-
-| Handler | Resources | Check |
-|---------|-----------|-------|
-| VideoHandler | gpu | GPU utilization/memory; queue or skip if over threshold |
-| LidarHandler | memory | Available memory; point cloud needs reserve |
-| VibrationHandler | cpu | Optional: lower freq or queue when CPU high |
-| AudioHandler | cpu | Usually light, can run with other CPU types |
-
-**Implementation**: `modality_handlers` register `required_resources: ["gpu"]`; scheduler calls `resource_guard.acquire(resources)` before starting handler, `release` when done. Edge single-node can serialize: only one "heavy" modality at a time.
-
-### Access Control & Multi-Tenant
-
-- [ ] **Model group & accounts**: Each group can only use and hot-update its own model assets
-- [ ] **Fuel & data ownership**: Groups can only access/copy fuel for their models (by batch or business line)
-- [ ] **Copy & op audit**: Who, when, copied what (batch ID, dir, account) stored and queryable
-- [ ] **Goal**: Clear access control, each gets own fuel, each updates own models, copies traceable
-
-### QC Extension
-
-- [ ] LiDAR quality rules (density, range, spatial_consistency), keep "duplicate+quality" two categories clear
-- [ ] **Optional**: Sensor fusion, SLAM/localization, 3D detection aligned with mining/autonomy
+四项可组合：I-frame + 运动唤醒减少解码与唤醒次数，级联减少大模型调用，Embedding 支持"谁在哪里"检索与报告。
 
 ---
 
-## 🚛 Scenario Extension: Mining Vehicle Key Frame & Material Recognition (Future)
+## 🍭 Auto-Modality 路由（v3 TODO）
 
-*Discussion notes for future reference.*
+自动检测文件格式与内容，无需手动配置；混合数据（视频+音频+LiDAR+振动）一次扫描自动路由。
 
-**Goal**: Top-down fixed camera, capture frame when "vehicle center crosses frame center" for Lidar volume alignment (yield) and material classification (sand/ore/coal). **Key frame**: Frame with minimum bbox-center-to-frame-center distance in continuous vehicle segment. **bbox**: Math first (background subtract + contour) → initial labeling for YOLO → model outputs bbox for key frame selection.
+| 当前 | 目标 |
+|------|------|
+| config modality: video 手动 | 扩展名 + 可选内容探针 → 自动路由 |
+| 每批次单一模态 | 按模态分组，各批次走各自 QC/Archive handler |
 
----
-
-## 🛠️ Tech & Tool Stack
-
-| Area | Current / Planned |
-|------|-------------------|
-| Programming & data | Python, SQL, data structures, batch processing |
-| ML/CV | Rule engine + YOLO (v2), PyTorch/NumPy planned |
-| Experiment & delivery | MLflow (v2), version mapping, data loop (v2.5) |
-| Ops & deployment | Logging, YAML, .env, Docker (v3), on-edge |
-| Collaboration & docs | Git, README/CHANGELOG/Roadmap, email & human review loop |
+- [ ] engines/modality_detector.py：detect_modality(path) -> str
+- [ ] Ingest：scan_raw 按模态分组返回；pre_filter 按组调用 decode_check
+- [ ] Pipeline：支持按模态分批或单批内按文件模态调度
+- [ ] Config：modality_filter 替代 modality，向后兼容（modality: video 等价于 modality_filter: ["video"]）
+- [ ] 未知格式：默认到 quarantine/unknown_format/，config unknown_format_action 可配
 
 ---
 
-## 📎 Related Docs
+## 🧬 Phase 3：Model-Ready & 深度血缘（v3.x）— 🔶 进行中
 
-| Doc | Purpose |
-|-----|---------|
-| **docs/v3_dev_plan.md** | V3 dev plan: steps, schedule, acceptance criteria |
-| docs/architecture_thinking.md | DI, interfaces, state machine, etc. |
-| docs/batch_output_confidence_tiers.md | refinery, inspection naming and output logic |
+**目标**：v3 后，模型团队可直接从 Pipeline 输出训练，并追溯"哪个模型用了哪批数据"。
+
+### 数据血缘（v3.0 ✅）
+
+- [x] Transform Log：batch_lineage 表记录 batch_base、source_dir、refinery_dir、inspection_dir、transform_params
+- [x] 血缘可视化：scripts/query_lineage.py — --batch、--import-id 或默认列出最近批次
+- [x] 标签写回链路：label_import 表记录 import_id、batch_ids、training_dir、consistency_rate、merged_count
+
+### MLflow 数据→模型追溯（v3.0 ✅）
+
+- [x] 数据集链接：MLflow run params 含 refinery_dir、inspection_dir、source_archive_dir
+- [x] 模型血缘：batch_lineage + label_import 元数据；可反查训练数据来源
+- [x] 可复现性：query_lineage.py 给定 batch_id 反查 transform_params 与路径
+
+### Model Registry（v3.0 ✅）
+
+- [x] config 引用 Registry：vision.model_path 支持 models:/name/version；engines/model_registry.py 解析；scripts/register_model.py 注册
+
+### CVAT 本地闭环（v3.1 ✅）
+
+- [x] 自部署 CVAT：本地 Docker 部署，无 SaaS 费用
+- [x] API 全自动：自动创建 Project/Task、上传图片+伪标签（scripts/cvat_upload_annotations.py）
+- [x] 标注拉取：自动导出标注结果、格式转换、并入 labeled_return（scripts/cvat_pull_annotations.py）
+- [x] 闭环打通：for_labeling → CVAT → import_labeled_return → training，全程脚本化
+- [x] model_train 血缘表：scripts/train_model.py 写入，scripts/query_lineage.py --train-id 查询
+
+### 多人协作数据库（v3.2 ✅）
+
+- [x] PostgreSQL（docker-compose.yml，postgres:16-alpine）
+- [x] 薄适配层（engines/db_connection.py）：SQLite 本地开发 / PostgreSQL 团队协作双支持
+- [x] DATABASE_URL 未设置自动回退 SQLite，测试无需改动
+- [x] MLFLOW_BACKEND_URI 切换 MLflow 后端到 PostgreSQL
 
 ---
 
-*Doc version: v2026.02 | Version line: v1 → v1.5 → v2 → v2.5 → v2.6 → v2.7 → v2.8 → v2.9 → v3 → v4 | Aligned with industrial/mining AI safety, efficiency & data quality*
+## 🐳 Phase 4：规模化与扩展（v4.x）— ⬜ 待做
 
-**V3 dev plan**: See [docs/v3_dev_plan.md](v3_dev_plan.md) (steps, schedule, acceptance criteria).
+### 任务编排与监控
+
+- [ ] 任务状态机（Pending/Processing/Reviewing/Done/Fail）
+- [ ] 多进程 / 分布式 Worker（消息队列 + 并行 QC）
+- [ ] 容器化部署（Docker）+ Prometheus（吞吐量、延迟、通过率）+ Grafana
+
+### Edge 部署
+
+- [ ] 现场跑全 Pipeline，仅上传结果摘要（KB 级）；中台汇总、复核、归档
+- [ ] 车辆返场→数据作为 Ingest 输入，接入现有 guard 模式
+- [ ] 模型轻量化，边缘↔中台同步（结果上传、config/模型下载），本地数据短期留存
+- [ ] 隐私与安全：原始数据留本地；中台只收摘要/关键帧/特征
+
+### 多节点部署
+
+- [ ] node_id + 全局 batch_id（未配置时用 MAC/hostname）
+- [ ] 节点上报摘要（HTTP/队列），离线重试（Store-and-Forward）
+- [ ] 中台接收、存储、跨节点去重、分发（待标池 manifest / API）
+
+### 多模态（audio/vibration、LiDAR）
+
+- [ ] audio/vibration：modality_handlers 扩展，FFT 频谱，预测性维护
+- [ ] raw_lidar/：Ingest（.pcd/.las/.ply），点云 QC，与视频时间戳对齐
+- [ ] 统一去重+质量策略，Batch_xxx/video 与 Batch_xxx/lidar 对齐
+
+### 访问控制与多租户
+
+- [ ] 模型组与账号：各组只能使用和热更新自己的模型资产
+- [ ] 燃料与数据归属：各组只能访问/复制本组模型的燃料（按批次或业务线）
+- [ ] 操作审计：谁、何时、复制了什么（batch ID、目录、账号）可存储可查询
+
+---
+
+## 🚛 场景扩展：矿车关键帧与物料识别（未来）
+
+**目标**：俯视固定摄像头，捕捉"车辆中心穿越画面中心"那一帧，用于激光雷达体积对齐（产量）和物料分类（砂/矿/煤）。关键帧 = 连续车辆段中 bbox 中心与画面中心距离最小的帧。
+
+---
+
+## 🛠️ 技术栈
+
+| 领域 | 当前 / 规划 |
+|------|------------|
+| 编程与数据 | Python, SQL, 批处理 |
+| ML/CV | 规则引擎 + YOLO (v2)，PyTorch/NumPy |
+| 实验与交付 | MLflow (v2)，版本映射，数据闭环 (v2.5) |
+| 数据库 | **PostgreSQL**（团队协作）/ SQLite（本地开发回退） |
+| 标注工具 | **本地 CVAT**（Docker，API 全自动，零成本） |
+| 运维与部署 | 日志、YAML、.env、Docker（compose），on-edge (v4) |
+| 协作与文档 | Git, README/CHANGELOG/Roadmap，邮件与人工复核闭环 |
+
+---
+
+## 📎 关联文档
+
+| 文档 | 用途 |
+|------|------|
+| docs/v3_dev_plan.md | v3 开发计划：步骤、验收标准 |
+| docs/v3_task_list.md | v3 任务清单（Phase 1–5） |
+| docs/architecture.md | 系统架构概述 |
+| docs/settings_guide.md | 全量 config 参数参考 |
+| docs/cvat_setup.md | CVAT 标注工作流操作指南 |
+| docs/active_labeling_priority.md | 主动学习标注优先级设计 |
+| docs/archive/ | 历史设计文档（AUDIT_REPORT、architecture_thinking 等） |
+
+---
+
+*文档版本：v2026.03 | 版本线：v1 → v1.5 → v2 → v2.5 → v2.6 → v2.7 → v2.8 → v2.9 → v2.10 → v2.11 → v3.0 → v3.1 → v3.2 → v4 | 对齐工业/矿山 AI 安全、效率与数据质量*

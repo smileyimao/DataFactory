@@ -41,7 +41,7 @@ def _batch_summary(
         batch_id, file_count, size_gb, elapsed, d_ingest, d_qc, d_review, d_archive, throughput_gb_h, files_per_h,
     )
 
-    if db_path and os.path.isfile(os.path.abspath(db_path)):
+    if db_path:
         db_tools.record_batch_metrics(
             db_path,
             batch_id,
@@ -118,7 +118,7 @@ def _maybe_log_mlflow(
 
 def _record_batch_lineage(cfg: dict, path_info: dict) -> None:
     """v3 血缘：写入 batch_lineage 表。"""
-    db_path = cfg.get("paths", {}).get("db_file")
+    db_path = cfg.get("paths", {}).get("db_url") or cfg.get("paths", {}).get("db_file")
     if not db_path:
         return
     batch_id = path_info.get("batch_id", "")
@@ -230,7 +230,7 @@ def run_smart_factory(
         t_qc,
         t_review,
         t_archive,
-        db_path=cfg.get("paths", {}).get("db_file"),
+        db_path=cfg.get("paths", {}).get("db_url") or cfg.get("paths", {}).get("db_file"),
     )
     _maybe_log_mlflow(
         cfg,

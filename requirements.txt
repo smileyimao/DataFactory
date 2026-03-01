@@ -31,6 +31,9 @@ watchdog>=3.0.0
 # 可选：MLflow 批次实验记录（config mlflow.enabled 为 true 时使用）
 mlflow>=2.0.0
 
+# PostgreSQL 支持（DATABASE_URL=postgresql:// 时需要；本地 SQLite 模式无需安装）
+psycopg2-binary>=2.9
+
 # 厂长中控台（review.mode=dashboard 时使用）
 fastapi>=0.100.0
 uvicorn>=0.22.0

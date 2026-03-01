@@ -40,12 +40,12 @@ def health_check():
     from config import config_loader
     checks = {}
     paths = _CFG.get("paths", {})
-    db_path = paths.get("db_file")
-    if db_path:
+    db_url = paths.get("db_url") or paths.get("db_file")
+    if db_url:
         try:
-            import sqlite3
-            conn = sqlite3.connect(db_path, timeout=5)
-            conn.execute("SELECT 1")
+            from engines import db_connection
+            conn = db_connection.connect(db_url)
+            conn.cursor().execute("SELECT 1")
             conn.close()
             checks["db"] = "ok"
         except Exception as e:
