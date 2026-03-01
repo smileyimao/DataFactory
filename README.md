@@ -16,11 +16,11 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 
 | Item | Status |
 |------|--------|
-| **Version** | v2.9 (Modality decoupling) |
+| **Version** | v3.0 (数据血缘、Model Registry、MLflow 追溯) |
 | **Main flow** | Ingest (pre-filter: dedup + decode) → Funnel QC (rule + vision) → Admission (auto-pass + HITL) → Archive |
 | **Archive structure** | `Batch_xxx/` with reports, source, refinery, inspection, labeled (labeled return write-back) |
 | **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
-| **Next target** | v3: Model-ready (data lineage, Transform Log, MLflow traceability) + Auto-modality routing |
+| **Next target** | v3.x: Auto-modality routing (audio/lidar/vibration) + 全自动标注闭环 |
 
 ---
 
@@ -47,7 +47,9 @@ python -m dashboard.app              # Start dashboard at http://127.0.0.1:8765
 
 First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 
-**Scripts**: `python scripts/reset_factory.py` — clean storage; `python scripts/export_for_labeling.py` — export to `storage/for_labeling`; `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training; `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB.
+**Scripts**: `python scripts/reset_factory.py` — clean storage; `python scripts/export_for_labeling.py` — export to `storage/for_labeling`; `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training; `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB; `python scripts/query_lineage.py` — v3 血缘查询; `python scripts/register_model.py path/to/model.pt --name vehicle_detector` — 注册模型到 MLflow Registry.
+
+**Optimization log**: `docs/optimization_log.md` — 产线 IE（持续优化）记录：瓶颈、根因、方案、教训。Auto pipeline 需持续迭代，优化即财富。
 
 **Tests**: After `pip install -r requirements-dev.txt`, run `pytest tests/ -v -m "not e2e"`; e2e requires test videos in `paths.test_source` (default `storage/test/original/`). Full pipeline: `python main.py --test`. See `tests/README.md`.
 
@@ -77,14 +79,15 @@ For readers familiar with industrial / MLOps terminology, the design maps as fol
 | **v2.7** | Industrial hardening: Path decoupling, P0/P1/P2/P3 (retry, DB error handling, health check, configurable timezone/log/email, metrics, config validation) — **critical for Edge deployment** | ✅ |
 | **v2.8** | Ingest pre-filter: dedup + first-frame decode, failed items to quarantine — **flow modularization** | ✅ |
 | **v2.9** | Modality decoupling: config modality, abstraction layer, reserved for audio/vibration | ✅ |
-| **v3** | **Model-ready**: data lineage, Transform Log, MLflow data→model traceability | Design done, pending implementation |
+| **v2.10** | Image 通路、auto-modality、raw 递归扫描、qualified 置信度分流、YOLO 复用 | ✅ |
+| **v3.0** | **Model-ready**: batch_lineage、label_import 血缘表；query_lineage.py；MLflow run params 含 refinery/inspection 路径；vision.model_path 支持 models:/name/version；register_model.py | ✅ |
 | **v4** | Multimodal, FFT, Edge, multi-node, access control | Design done, pending implementation |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x** through **v2.9** (Modality decoupling). Next target: **v3** (Model-ready: data lineage, Transform Log, MLflow data→model traceability).
+Current code covers **v1.x** through **v3.0** (数据血缘、Model Registry、MLflow 追溯). Next target: **v3.x** (Auto-modality routing: audio/lidar/vibration; 全自动标注闭环).
 
 ### v1.x — Production pipeline
 
@@ -196,6 +199,7 @@ See **docs/architecture.md**, **docs/architecture_mindmap.md** (architecture ske
 - **v2.7**: Done. Industrial hardening — P0/P1/P2/P3, Path decoupling, Batch rename (critical for Edge deployment).
 - **v2.8**: Done. Ingest pre-filter — dedup + first-frame decode, quarantine, flow modularization.
 - **v2.9**: Done. Modality decoupling — config modality, modality_handlers, reserved for audio/vibration.
+- **v2.10**: Done. Image 通路、auto-modality、raw 递归扫描、qualified 按 YOLO 置信度分流、YOLO 复用消除二次推理。
 - **v3.x**: Design done, pending implementation. **Model-ready**: data lineage, Transform Log, MLflow data→model traceability; **Auto-modality routing**: auto-detect and route by file; Backward Compatibility.
 - **v4.x**: Design done, pending implementation. **Scale & extension**: multimodal, Temporal Sync (observed_at), Resource Locking (Edge), FFT, Edge, multi-node, access control.
 

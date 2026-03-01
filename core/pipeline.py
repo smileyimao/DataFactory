@@ -88,6 +88,9 @@ def _maybe_log_mlflow(
                 "algorithm_version": (path_info.get("version_mapping") or {}).get("algorithm_version", ""),
                 "vision_model_version": (path_info.get("version_mapping") or {}).get("vision_model_version", ""),
                 "gate": path_info.get("gate"),
+                "refinery_dir": path_info.get("fuel_dir", ""),
+                "inspection_dir": path_info.get("human_dir", ""),
+                "source_archive_dir": path_info.get("source_archive_dir", ""),
             })
             mlflow.log_metrics({
                 "file_count": file_count,
@@ -113,6 +116,36 @@ def _maybe_log_mlflow(
         logger.warning("MLflow 记录失败（已跳过）: %s", e)
 
 
+def _record_batch_lineage(cfg: dict, path_info: dict) -> None:
+    """v3 血缘：写入 batch_lineage 表。"""
+    db_path = cfg.get("paths", {}).get("db_file")
+    if not db_path:
+        return
+    batch_id = path_info.get("batch_id", "")
+    source_archive_dir = path_info.get("source_archive_dir", "")
+    fuel_dir = path_info.get("fuel_dir", "")
+    human_dir = path_info.get("human_dir", "")
+    if not batch_id or not source_archive_dir:
+        return
+    batch_base = os.path.dirname(source_archive_dir)
+    source_dir = cfg.get("paths", {}).get("raw_video", "")
+    vm = path_info.get("version_mapping") or {}
+    transform_params = {
+        "gate": path_info.get("gate"),
+        "algorithm_version": vm.get("algorithm_version", ""),
+        "vision_model_version": vm.get("vision_model_version", ""),
+    }
+    db_tools.record_batch_lineage(
+        db_path,
+        batch_id,
+        batch_base,
+        source_dir,
+        fuel_dir,
+        human_dir,
+        transform_params,
+    )
+
+
 def run_smart_factory(
     cfg: Optional[dict] = None,
     video_paths: Optional[List[str]] = None,
@@ -132,8 +165,8 @@ def run_smart_factory(
         cfg.setdefault("production_setting", {})["pass_rate_gate"] = float(gate_val)
 
     modality = modality_handlers.get_modality(cfg)
-    if modality != "video":
-        print(f"❌ 当前仅支持 modality=video，config 中 modality={modality} 将在 v3 实现（audio/vibration）。")
+    if modality not in ("video", "image"):
+        print(f"❌ 当前仅支持 modality=video/image，config 中 modality={modality} 将在 v3 实现（audio/vibration）。")
         logger.warning("modality=%s 未实现，跳过 pipeline", modality)
         return
 
@@ -180,6 +213,8 @@ def run_smart_factory(
     archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
     archiver.archive_produced(cfg, to_fuel, to_human, path_info)
     metrics.inc("batch_processed_total")
+    # v3 血缘：记录 batch_lineage
+    _record_batch_lineage(cfg, path_info)
     # 待标池自动更新：本批 inspection 追加到 for_labeling
     updated = labeling_export.auto_update_after_batch(cfg, path_info)
     if updated:

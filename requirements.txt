@@ -34,3 +34,7 @@ mlflow>=2.0.0
 # 厂长中控台（review.mode=dashboard 时使用）
 fastapi>=0.100.0
 uvicorn>=0.22.0
+
+# 可选：CVAT 标注上传（scripts/cvat_upload_annotations.py 云版 405 时用）
+# cvat-sdk>=2.0.0
+certifi>=2023.0.0   # macOS 上 HTTPS 证书验证（SSL_CERT_FILE）

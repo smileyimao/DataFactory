@@ -1,8 +1,10 @@
-# engines/db_tools.py — 数据库工具：查重、记录，只读写不决策
+# engines/db_tools.py — 数据库工具：查重、记录、血缘，只读写不决策
 # P0 工业级：所有 DB 操作捕获异常，记录日志，失败时返回 None/空
+import json
+import os
 import sqlite3
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,28 @@ def init_db(db_path: str) -> bool:
                 duration_archive_sec REAL,
                 throughput_gb_per_hour REAL,
                 files_per_hour REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # v3 血缘表
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS batch_lineage (
+                batch_id TEXT PRIMARY KEY,
+                batch_base TEXT,
+                source_dir TEXT,
+                refinery_dir TEXT,
+                inspection_dir TEXT,
+                transform_params TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS label_import (
+                import_id TEXT PRIMARY KEY,
+                batch_ids TEXT,
+                training_dir TEXT,
+                consistency_rate REAL,
+                merged_count INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -152,3 +176,97 @@ def record_batch_metrics(
     except sqlite3.Error as e:
         logger.exception("batch_metrics 写入失败: batch_id=%s — %s", batch_id, e)
         return False
+
+
+def record_batch_lineage(
+    db_path: str,
+    batch_id: str,
+    batch_base: str,
+    source_dir: str,
+    refinery_dir: str,
+    inspection_dir: str,
+    transform_params: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """写入批次血缘。成功返回 True，失败记录日志并返回 False。"""
+    if not db_path or not os.path.isfile(os.path.abspath(db_path)):
+        return False
+    params_json = json.dumps(transform_params or {}, ensure_ascii=False)
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT OR REPLACE INTO batch_lineage
+               (batch_id, batch_base, source_dir, refinery_dir, inspection_dir, transform_params)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (batch_id, batch_base, source_dir, refinery_dir, inspection_dir, params_json),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("batch_lineage 已写入: batch_id=%s", batch_id)
+        return True
+    except sqlite3.Error as e:
+        logger.exception("batch_lineage 写入失败: batch_id=%s — %s", batch_id, e)
+        return False
+
+
+def record_label_import(
+    db_path: str,
+    import_id: str,
+    batch_ids: List[str],
+    training_dir: str,
+    consistency_rate: float,
+    merged_count: int,
+) -> bool:
+    """写入标注回传血缘。成功返回 True，失败记录日志并返回 False。"""
+    if not db_path or not os.path.isfile(os.path.abspath(db_path)):
+        return False
+    batch_ids_json = json.dumps(batch_ids, ensure_ascii=False)
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT OR REPLACE INTO label_import
+               (import_id, batch_ids, training_dir, consistency_rate, merged_count)
+               VALUES (?, ?, ?, ?, ?)""",
+            (import_id, batch_ids_json, training_dir, consistency_rate, merged_count),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("label_import 已写入: import_id=%s batch_ids=%s", import_id, batch_ids)
+        return True
+    except sqlite3.Error as e:
+        logger.exception("label_import 写入失败: import_id=%s — %s", import_id, e)
+        return False
+
+
+def get_batch_lineage(db_path: str, batch_id: str) -> Optional[Dict[str, Any]]:
+    """查询批次血缘。返回 dict 或 None。"""
+    if not db_path or not os.path.isfile(os.path.abspath(db_path)):
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT batch_id, batch_base, source_dir, refinery_dir, inspection_dir, transform_params, created_at FROM batch_lineage WHERE batch_id = ?", (batch_id,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        out = {
+            "batch_id": row[0],
+            "batch_base": row[1],
+            "source_dir": row[2],
+            "refinery_dir": row[3],
+            "inspection_dir": row[4],
+            "created_at": row[6],
+        }
+        if row[5]:
+            try:
+                out["transform_params"] = json.loads(row[5])
+            except json.JSONDecodeError:
+                out["transform_params"] = {}
+        else:
+            out["transform_params"] = {}
+        return out
+    except sqlite3.Error as e:
+        logger.exception("batch_lineage 查询失败: batch_id=%s — %s", batch_id, e)
+        return None

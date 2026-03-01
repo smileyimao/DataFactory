@@ -35,3 +35,4 @@ tests/output/
 mlruns/
 mlflow.db
 models/*.pt
+models/registry_cache/

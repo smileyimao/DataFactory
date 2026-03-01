@@ -63,6 +63,7 @@ labeling_pool:
 labeled_return:
   consistency_threshold: 0.95
   alert_via_email: true
+  skip_empty_labels: true   # 并入训练集时丢弃无标注图（相似帧未标）
 
 retry:
   max_attempts: 3

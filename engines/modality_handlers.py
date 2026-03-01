@@ -42,26 +42,60 @@ def _decode_check_vibration(path: str, cfg: dict) -> bool:
     return True
 
 
+def _decode_check_image(path: str, cfg: dict) -> bool:
+    """Image：cv2.imread 可读性检查。"""
+    try:
+        import cv2
+        img = cv2.imread(path)
+        return img is not None
+    except Exception as e:
+        logger.warning("Image decode_check 失败: path=%s — %s", path, e)
+        return False
+
+
 def _register_defaults() -> None:
     if _DECODE_CHECK:
         return
     _DECODE_CHECK["video"] = _decode_check_video
+    _DECODE_CHECK["image"] = _decode_check_image
     _DECODE_CHECK["audio"] = _decode_check_audio
     _DECODE_CHECK["vibration"] = _decode_check_vibration
 
 
 def get_modality(cfg: dict) -> str:
-    """从配置读取 modality，默认 video。"""
+    """从配置读取 modality；按 image_mode 或自动检测选择 image/video 通路。"""
+    from config import config_loader
+    mode = config_loader.get_content_mode(cfg)
+    if mode == "image":
+        return "image"
     return (cfg.get("modality") or "video").strip().lower()
+
+
+def get_modality_for_path(path: str, cfg: dict) -> str:
+    """按文件扩展名判定单文件 modality，用于混合模式。未知扩展名回退到 get_modality(cfg)。"""
+    low = (path or "").lower()
+    img_exts = (".jpg", ".jpeg", ".png", ".bmp")
+    vid_exts = (".mp4", ".mov", ".avi", ".mkv")
+    if any(low.endswith(ext) for ext in img_exts):
+        return "image"
+    if any(low.endswith(ext) for ext in vid_exts):
+        return "video"
+    return get_modality(cfg)
 
 
 def decode_check(path: str, cfg: dict) -> bool:
     """
     按 modality 分发 decode_check。成功返回 True，失败返回 False。
+    混合模式时按文件扩展名自动选择 image/video handler；否则用配置的 modality。
     未实现的 modality 默认返回 True（跳过检查）。
     """
     _register_defaults()
-    modality = get_modality(cfg)
+    from config import config_loader
+    mode = config_loader.get_content_mode(cfg)
+    if mode == "both":
+        modality = get_modality_for_path(path, cfg)
+    else:
+        modality = get_modality(cfg)
     handler = _DECODE_CHECK.get(modality)
     if handler is None:
         logger.warning("未知 modality=%s，跳过 decode_check", modality)

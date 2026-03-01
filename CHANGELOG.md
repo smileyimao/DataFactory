@@ -1,5 +1,75 @@
 # 🏭 DataFactory 生产版本日志 (Version Log)
 
+## [v3.0] - 2026-02-20
+### 📝 版本概览
+**数据血缘与 Model Registry**：批次级 Transform Log、标注回写关联、MLflow 血缘参数、`models:/` URI 支持。
+
+#### 数据血缘（Phase 3）
+* **batch_lineage**：每批归档后写入 `batch_id`、`batch_base`、`source_dir`、`refinery_dir`、`inspection_dir`、`transform_params`（gate、algorithm_version、vision_model_version）。
+* **label_import**：标注回传达标并入训练集后，记录 `import_id`、`batch_ids`、`training_dir`、`consistency_rate`、`merged_count`。
+* **scripts/query_lineage.py**：血缘查询 CLI，`--batch`、`--import-id` 或默认列出最近批次。
+
+#### MLflow 血缘（Phase 4）
+* **pipeline._maybe_log_mlflow**：新增 `refinery_dir`、`inspection_dir`、`source_archive_dir` 参数，便于 run 追溯数据来源。
+* **engines/model_registry.py**：`resolve_model_uri()` 解析 `models:/name/version`，从 MLflow 下载到 `models/registry_cache/` 并返回本地 .pt 路径。
+* **vision_detector**：`model_path`、`cascade_light_model_path` 支持 `models:/` URI，自动解析后加载。
+* **scripts/register_model.py**：将本地 .pt 注册到 MLflow Model Registry，供 config 使用 `models:/vehicle_detector/1`。
+
+#### 配置
+* `vision.model_path` 可填 `models:/vehicle_detector/2` 或本地路径；`cascade_light_model_path` 同理。
+* `.gitignore` 新增 `models/registry_cache/`。
+
+#### 修复
+* **CVAT 导入失败**：`production_tools` 源头输出帧时对媒体名去空格；`export_for_cvat` 二次兜底；`labeled_return` 支持 sanitized 回传；`scripts/demo_prepare.sh` 预演练验证 zip 可导入。
+* **CVAT 伪标签上传**：统一用 CVAT for images 1.1 原生格式。`export_for_cvat.py` 仅生成图片 zip；`export_for_cvat_native.py` 生成标注 zip；删除 LabelMe/COCO/Ultralytics 等格式。
+
+---
+
+## [v2.10.1] - 2026-02-27
+### 📝 版本概览
+**混合模式（image + video both）**：raw 目录同时有图片和视频时，自动走 both 通路，两类媒体均被处理，不再忽略其中一类。
+
+#### 混合模式
+* **file_tools.detect_content_mode()**：当 raw 同时有图片和视频时，返回 `"both"`；仅一种时按数量多者；空目录默认 video。
+* **file_tools.list_media_paths_recursive()**：新增，递归扫描图片+视频，返回合并排序的路径列表。
+* **config_loader.get_content_mode()**：支持 `image_mode: "both"` 显式指定；`"auto"` 时 raw 有图+有视频则自动返回 both。
+* **core/ingest.py**：mode 为 both 时调用 `list_media_paths_recursive`，图片和视频一并进入 pipeline。
+* **modality_handlers**：`decode_check` 在 both 模式下按**文件扩展名**选择 image/video handler（`get_modality_for_path`），每文件独立解码检查。
+
+#### 配置
+* `ingest.image_mode`：新增可选值 `"both"`（混合）；`"auto"` 时两者都有自动走 both。
+* 详见 **docs/image_mode.md**、**docs/quick_validation_guide.md**。
+
+---
+
+## [v2.10] - 2026-02-26
+### 📝 版本概览
+**Image 通路与自动模式判定**：支持 YOLOv8 图片数据集全流程，raw 目录按内容自动选择 image/video 通路，无需手动改 config。
+
+#### Image 通路
+* **ingest**：`image_mode` 为 `true` 或 `"auto"` 且 raw 以图片为主时，递归扫描 `image_extensions`（.jpg/.jpeg/.png），替代视频扫描。
+* **modality_handlers**：`decode_check_image` 用 `cv2.imread` 做可读性检查；`get_modality()` 按 `config_loader.get_content_mode()` 返回 `"image"` 或 `"video"`。
+* **qc_engine**：image 时跳过视频专用 QC（帧率、时长、I-frame）；保留 blur、brightness、dedup（MD5）。
+* **production_tools**：按扩展名识别图片，用 `cv2.imread` 单帧处理；输出保持原名；存在 YOLO 标签时一并复制到 refinery/inspection。
+* **archiver**：移动/复制图片时同步移动对应 `labels/xxx.txt`（YOLO 格式：`.../images/xxx.jpg` ↔ `.../labels/xxx.txt`）。
+
+#### 自动模式判定（image_mode: "auto"）
+* **file_tools.detect_content_mode()**：递归扫描 raw 目录，统计图片/视频数量，数量多者决定通路；空目录默认 video。
+* **config_loader.get_content_mode()**：统一解析 `image_mode`（true/false/auto），供 ingest、modality_handlers 共用。
+* **config 默认**：`ingest.image_mode: "auto"`，`ingest.image_extensions: [".jpg", ".jpeg", ".png"]`。
+
+#### 技术说明
+* 详见 **docs/image_mode.md**、**docs/settings_guide.md** ingest 节。
+
+#### 产线优化（IE）
+* **YOLO 复用**：QC 阶段 `return_detections=True`，`qc_detections_by_video` 传入 archiver，消除二次推理。
+* **qualified 置信度分流**：`archive_produced` 对 qualified 按 `approved_split_confidence_threshold` 分流，高置信 → refinery，低置信/无检测 → inspection。
+* **进度可见**：vision_scan tqdm；production_tools 单条整体进度条。
+* **raw 递归扫描**：image/video 均递归扫描 raw 及子目录；guard Watchdog `recursive=True`；支持深层嵌套、按文件夹分类的投放方式。
+* **docs/optimization_log.md**：产线优化日志，记录瓶颈、根因、方案与设计原则。
+
+---
+
 ## [v2.9] - 2026-02-24
 ### 📝 版本概览
 **Modality 解耦（YAGNI）**：流程与信号类型解耦，为 v3 多模态（audio/vibration、predictive maintenance）预留接口。config 切换 modality 即可，未来只需加 handler。

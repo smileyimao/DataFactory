@@ -18,8 +18,6 @@ sys.path.insert(0, BASE_DIR)
 from config import config_loader
 from engines import labeled_return
 
-config_loader.set_base_dir(BASE_DIR)
-
 
 def main():
     parser = argparse.ArgumentParser(description="标注回传：接收目录或压缩包，与伪标签对比，达标并入训练集。")
@@ -34,7 +32,7 @@ def main():
     if args.dir and args.zip:
         parser.error("请只指定 --dir 或 --zip 之一")
 
-    cfg = config_loader.load_config()
+    cfg, _ = config_loader.get_config_and_paths(BASE_DIR)
     result = labeled_return.run_full_pipeline(
         cfg,
         source_dir=os.path.abspath(args.dir) if args.dir else None,

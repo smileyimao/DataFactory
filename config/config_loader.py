@@ -2,7 +2,9 @@
 # 工业级：path decoupling，所有路径/目录名从配置读取，支持 env 覆盖
 import os
 import yaml
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from engines import file_tools
 
 _DEFAULT_BASE_DIR: Optional[str] = None
 
@@ -14,6 +16,24 @@ def set_base_dir(path: str) -> None:
     """设置项目根目录，用于解析相对路径。"""
     global _DEFAULT_BASE_DIR
     _DEFAULT_BASE_DIR = os.path.abspath(path)
+
+
+def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """
+    加载配置并解析常用路径。供 scripts 统一使用。
+    返回 (cfg, paths)，paths 含 for_labeling 等绝对路径。
+    """
+    if base_dir is None:
+        base_dir = get_base_dir()
+    set_base_dir(base_dir)
+    cfg = load_config()
+    p = cfg.get("paths", {})
+    for_labeling = p.get("labeling_export", "")
+    if not for_labeling:
+        for_labeling = os.path.join(base_dir, "storage", "for_labeling")
+    elif not os.path.isabs(for_labeling):
+        for_labeling = os.path.join(base_dir, for_labeling)
+    return cfg, {"for_labeling": for_labeling}
 
 
 def get_base_dir() -> str:
@@ -119,6 +139,8 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     data["labeling_pool"].setdefault("auto_update_after_batch", True)
     data.setdefault("retry", {"max_attempts": 3, "backoff_seconds": 1.0})
     ig = data.setdefault("ingest", {})
+    ig.setdefault("image_mode", "auto")  # auto=根据 raw 目录自动判定，true/false=强制
+    ig.setdefault("image_extensions", [".jpg", ".jpeg", ".png"])
     ig.setdefault("pre_filter_enabled", True)
     ig.setdefault("dedup_at_ingest", True)
     ig.setdefault("decode_check_at_ingest", True)
@@ -189,17 +211,6 @@ def get_pending_thumbs_dir(cfg: Dict[str, Any]) -> str:
     return os.path.join(pending, "thumbs")
 
 
-def init_storage_structure(base_dir: Optional[str] = None) -> None:
-    """
-    启动时确保 storage/ 与 db/ 目录存在（兼容旧逻辑，无 config 时使用默认路径）。
-    若 base_dir 未传则使用 get_base_dir()。
-    """
-    base = base_dir if base_dir is not None else get_base_dir()
-    for sub in ("storage/raw", "storage/archive", "storage/rejected", "storage/redundant", "storage/test", "storage/test/original", "storage/reports", "storage/for_labeling", "storage/golden", "storage/pending_review", "storage/labeled_return", "storage/training", "db"):
-        d = os.path.join(base, sub)
-        os.makedirs(d, exist_ok=True)
-
-
 def init_storage_from_config(cfg: Dict[str, Any]) -> None:
     """
     根据配置确保 paths 中目录存在（工业级：path decoupling）。
@@ -267,7 +278,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "human_review_flat": True,
         },
         "review": {"mode": "terminal", "timeout_seconds": 600, "valid_inputs": ["y", "n", "all", "none"]},
-        "labeled_return": {"consistency_threshold": 0.95, "alert_via_email": True},
+        "labeled_return": {"consistency_threshold": 0.95, "alert_via_email": True, "skip_empty_labels": True},
         "email_setting": {},
         "startup_self_check": True,
         "rolling_cleanup": {
@@ -298,11 +309,6 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "tracking_uri": "sqlite:///" + os.path.join(base_dir, "db", "mlflow.db").replace("\\", "/"),
         },
     }
-
-
-def get_paths(cfg: Dict[str, Any]) -> Dict[str, str]:
-    """从已加载配置中取出 paths（绝对路径）。"""
-    return cfg.get("paths", {})
 
 
 def validate_config(cfg: Dict[str, Any]) -> List[str]:
@@ -342,6 +348,26 @@ def validate_config(cfg: Dict[str, Any]) -> List[str]:
         errs.append("production_setting: dual_gate_high 应大于 dual_gate_low")
 
     return errs
+
+
+def get_content_mode(cfg: Dict[str, Any]) -> str:
+    """
+    解析 content 通路：true/image → image，false/video → video，both → 混合，auto/未配置 → 根据 raw 目录自动判定。
+    供 ingest、modality_handlers 等统一使用。
+    """
+    ingest_cfg = cfg.get("ingest", {})
+    mode = ingest_cfg.get("image_mode", "auto")
+    if mode is True or (isinstance(mode, str) and str(mode).lower() in ("true", "1")):
+        return "image"
+    if mode is False or (isinstance(mode, str) and str(mode).lower() in ("false", "0")):
+        return "video"
+    if isinstance(mode, str) and str(mode).lower() in ("both", "mixed"):
+        return "both"
+    # auto 或未配置：根据 raw 目录内容自动判定
+    raw_dir = cfg.get("paths", {}).get("raw_video", "")
+    img_exts = tuple(ingest_cfg.get("image_extensions", [".jpg", ".jpeg", ".png"]))
+    vid_exts = tuple(ingest_cfg.get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
+    return file_tools.detect_content_mode(raw_dir, img_exts, vid_exts)
 
 
 def get_quality_thresholds(cfg: Dict[str, Any]) -> Dict[str, Any]:

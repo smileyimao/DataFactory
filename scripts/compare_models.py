@@ -158,8 +158,7 @@ def main():
     args = parser.parse_args()
 
     from config import config_loader
-    config_loader.set_base_dir(BASE_DIR)
-    cfg = config_loader.load_config()
+    cfg, paths = config_loader.get_config_and_paths(BASE_DIR)
 
     baseline_path = args.baseline
     if baseline_path.lower() == "config":
@@ -170,9 +169,9 @@ def main():
 
     data_dir = args.data
     if not data_dir:
-        data_dir = cfg.get("paths", {}).get("labeling_export", "")
-        if data_dir:
-            data_dir = os.path.join(data_dir, "images")
+        fl = paths.get("for_labeling", "")
+        if fl:
+            data_dir = os.path.join(fl, "images")
     if not data_dir or not os.path.isdir(data_dir):
         print(f"❌ 数据目录不存在: {data_dir}")
         sys.exit(1)

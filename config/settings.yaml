@@ -39,6 +39,8 @@ ingest:
   batch_wait_seconds: 8
   poll_interval_seconds: 30   # 轮询兜底：每 N 秒扫 raw，Watchdog 漏检时仍能发现（0=不轮询）
   video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
+  image_extensions: [".jpg", ".jpeg", ".png"]   # image 通路时递归扫描
+  image_mode: "auto"   # auto=根据 raw 自动判定；true=强制图片；false=强制视频；both=混合（图片+视频都处理）
   file_stable_check_interval: 1
   file_stable_min_seconds: 2
   # Ingest 预检：在送入 pipeline 前做 dedup + 首帧解码检查，失败项移入 quarantine
@@ -63,7 +65,7 @@ production_setting:
   save_warning: true
   save_only_screened: false  # true=只落盘「Warning 或 有 YOLO 检测」的帧，减少全量切片（见 docs/smart_slicing.md）
   confidence_tiered_output: true   # true=按置信分层落盘(refinery、inspection)；false=全部写 refinery
-  approved_split_confidence_threshold: 0.6   # 放行项按 YOLO 置信度分流：max_conf>=此值→refinery，否则→inspection
+  approved_split_confidence_threshold: 0.85   # ≥0.85→refinery（高置信，伪标签直接用）；<0.85→inspection（低置信，需人工标）
   human_review_flat: true   # true=inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
 
 review:
@@ -87,7 +89,7 @@ vision:
   # 四板斧：高效筛查
   use_i_frame_only: false   # true=只解 I-帧（需 ffprobe），减少解码量
   motion_threshold: 0       # 运动唤醒：帧差低于此值不跑 YOLO，0=关闭
-  cascade_light_model_path: "models/yolov8n.pt"   # 级联初筛：nano 轻量模型，有东西才上主模型
+  cascade_light_model_path: ""   # 级联初筛：留空关闭（数车辆时 COCO 会过滤掉车）
   cascade_light_conf: 0.2   # 级联轻量模型置信度阈值
   # 推理参数（predict）：未配置时由 config_loader 填入工业默认值
   conf: 0.25                # 置信度阈值 [0,1]
@@ -128,6 +130,7 @@ labeling_pool:
 labeled_return:
   consistency_threshold: 0.95   # 一致率低于此值报警，要求差异部分复核
   alert_via_email: true        # 是否发邮件报警（使用 email_setting）
+  skip_empty_labels: true      # true=并入训练集时丢弃无标注的图（变化不大未标的相似帧），减少冗余
 
 # P0 工业级：文件操作重试（瞬时故障如 NFS 抖动）
 retry:

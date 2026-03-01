@@ -91,6 +91,7 @@ def main():
             ("redundant", os.path.join(storage, "redundant")),
             ("rejected", os.path.join(storage, "rejected")),
             ("reports", os.path.join(storage, "reports")),
+            ("quarantine", os.path.join(storage, "quarantine")),
         ]
         for name, dir_path in targets:
             if os.path.isdir(dir_path):

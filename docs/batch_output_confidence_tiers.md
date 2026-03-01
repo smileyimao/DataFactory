@@ -30,8 +30,8 @@ storage/archive/
 
 **说明**：
 
-- **refinery**：仅来自 `qualified`（自动放行），不混入复核通过项。目录平铺（无 Normal/Warning），只含 manifest.json + 图 + .txt 伪标签，无报告。
-- **inspection**：仅来自「blocked 里复核通过」的项；按 `human_review_flat` 决定是否平铺。
+- **refinery**：来自 `qualified` 中 YOLO 高置信（如 max_conf ≥ 0.6）项；复核通过项中高置信也进 refinery。目录平铺。v2.10 起 qualified 按 `approved_split_confidence_threshold` 分流。
+- **inspection**：来自 `qualified` 中低置信/无检测项 + 「blocked 里复核通过」的项；按 `human_review_flat` 决定是否平铺。
 
 ---
 

@@ -11,6 +11,7 @@ import numpy as np
 
 from . import motion_filter
 from . import frame_io
+from . import model_registry
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def get_inference_params(cfg: dict) -> Dict[str, Any]:
 def get_model(cfg: dict):
     """
     YOLO 单例：从 config vision.model_path 加载，仅当 vision.enabled 且 model_path 非空时加载。
-    返回模型实例或 None。
+    支持 models:/name/version（MLflow Model Registry）。返回模型实例或 None。
     """
     global _model, _model_path_loaded, _last_load_error
     v = _vision_cfg(cfg)
@@ -61,12 +62,16 @@ def get_model(cfg: dict):
     path = (v.get("model_path") or "").strip()
     if not path:
         return None
-    if path == _model_path_loaded and _model is not None:
+    from config import config_loader
+    base_dir = config_loader.get_base_dir()
+    mlflow_uri = (cfg.get("mlflow") or {}).get("tracking_uri")
+    resolved = model_registry.resolve_model_uri(path, base_dir=base_dir, mlflow_tracking_uri=mlflow_uri)
+    if resolved == _model_path_loaded and _model is not None:
         return _model
     try:
         from ultralytics import YOLO
-        _model = YOLO(path)
-        _model_path_loaded = path
+        _model = YOLO(resolved)
+        _model_path_loaded = resolved
         _last_load_error = None
         logger.info("视觉模型已加载: %s", path)
         return _model
@@ -92,7 +97,7 @@ def get_vision_model_version(cfg: dict) -> str:
 
 
 def get_cascade_model(cfg: dict):
-    """级联检测：加载轻量模型，用于初筛。若未配置或与主模型相同则返回 None。"""
+    """级联检测：加载轻量模型，用于初筛。若未配置或与主模型相同则返回 None。支持 models:/ URI。"""
     global _cascade_model, _cascade_path_loaded
     v = _vision_cfg(cfg)
     path = (v.get("cascade_light_model_path") or "").strip()
@@ -101,12 +106,16 @@ def get_cascade_model(cfg: dict):
     main_path = (v.get("model_path") or "").strip()
     if path == main_path:
         return None
-    if path == _cascade_path_loaded and _cascade_model is not None:
+    from config import config_loader
+    base_dir = config_loader.get_base_dir()
+    mlflow_uri = (cfg.get("mlflow") or {}).get("tracking_uri")
+    resolved = model_registry.resolve_model_uri(path, base_dir=base_dir, mlflow_tracking_uri=mlflow_uri)
+    if resolved == _cascade_path_loaded and _cascade_model is not None:
         return _cascade_model
     try:
         from ultralytics import YOLO
-        _cascade_model = YOLO(path)
-        _cascade_path_loaded = path
+        _cascade_model = YOLO(resolved)
+        _cascade_path_loaded = resolved
         logger.info("级联轻量模型已加载: %s", path)
         return _cascade_model
     except Exception as e:
@@ -233,10 +242,16 @@ def run_vision_scan(
         logger.info("AI 正在扫描...（视觉模型未加载，跳过推理）")
         return []
     logger.info("AI 正在扫描... (I帧=%s 运动唤醒=%s 级联=%s)", use_i_frame, motion_threshold > 0, cascade_model is not None)
+    print(f"\n🔍 [YOLO 视觉扫描] 共 {len(video_paths)} 个文件，请稍候...")
     params = get_inference_params(cfg)
     conf_threshold = float(v.get("conf", 0.25)) if return_detections else 0.0
     per_video: List[Dict[str, Any]] = []
-    for v_path in video_paths:
+    try:
+        from tqdm import tqdm
+        path_iter = tqdm(video_paths, desc="YOLO 视觉扫描", unit="文件")
+    except ImportError:
+        path_iter = video_paths
+    for v_path in path_iter:
         if not os.path.isfile(v_path):
             logger.warning("视觉扫描跳过不存在的文件: %s", v_path)
             continue

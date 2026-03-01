@@ -24,7 +24,7 @@ Edge computing is like the **eye**: the retina does heavy preprocessing locally 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │  Ingest                                                                          │
 │  raw_video/  [done]     raw_lidar/  [v4 extension]                               │
-│  Auto-modality routing  [v3]: auto-detect by format/content → video/audio/lidar/vibration routing │
+│  Auto-modality routing  [v2.10 done, v2.10.1 both]: image/video/both by raw content; v3: audio/lidar/vibration │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼
@@ -70,7 +70,11 @@ Edge computing is like the **eye**: the retina does heavy preprocessing locally 
 | **v2.7** | ✅ Done | Industrial hardening: P0/P1/P2/P3, Path decoupling, Batch rename — **critical for Edge deployment** |
 | **v2.8** | ✅ Done | Ingest pre-filter: dedup + first-frame decode, failures to quarantine — **flow modularization** |
 | **v2.9** | ✅ Done | Modality decoupling; hardening: MLflow→db/mlflow.db, labeled subdir, safe_copy anti-silent-fail, pytest suite; root cleanup |
-| **v3.x** | ⬜ TODO | **Model-ready**: data lineage, Transform Log, MLflow data→model traceability; **Auto-modality routing**: auto-detect and route by file |
+| **v2.10** | ✅ Done | **Image 通路**：YOLOv8 图片数据集全流程；**Auto-modality**：raw 按内容自动判定 image/video；**raw 递归扫描**：支持子目录/深层嵌套；**qualified 置信度分流**：高→refinery 低→inspection；**YOLO 复用**：消除二次推理 |
+| **v2.10.1** | ✅ Done | **混合模式**：raw 同时有图片+视频时自动走 both，两类均处理；`image_mode: "both"` 显式指定；decode_check 按扩展名 per-file 分发 |
+| **v2.11** | 🔶 设计完成 | **主动学习标注优先级**：时间紧优先标低 confidence + QC 异常；skip_empty_labels 丢弃未标相似帧；manifest 扩展 max_confidence/qc_env 待实现；见 docs/active_labeling_priority.md |
+| **v3.0** | ✅ Done | **数据血缘**：batch_lineage、label_import 表；pipeline 归档后自动写入；scripts/query_lineage.py 查询；**MLflow 血缘**：run params 含 refinery_dir、inspection_dir、source_archive_dir；**Model Registry**：vision.model_path 支持 models:/name/version，engines/model_registry.py 解析，scripts/register_model.py 注册 |
+| **v3.x** | 🔶 部分完成 | **Model-ready** 核心已就绪；**Auto-modality** 扩展：audio/lidar/vibration 待实现；**全自动标注闭环**：自部署 CVAT + API 打通，零成本 |
 | **v4.x** | ⬜ TODO | **Scale & extension**: multimodal (audio/vibration), FFT, predictive maintenance, Edge, multi-node |
 
 ---
@@ -160,9 +164,9 @@ We build the **vehicle**; the model team builds the **engine**. We own the pipel
 - [x] **Confidence-tiered output**: refinery, inspection (manifest, pseudo-label .txt), quality reports in Batch_xxx/reports
 - [x] **Extensible QC**: quality_tools.register_extra_check, decide_env unified dispatch
 
-**TODO**
+**Done (v3.0)**
 
-- [ ] **Model registry & reproducibility**: model registry + training/eval pipeline integration
+- [x] **Model registry & reproducibility**: vision.model_path 支持 models:/name/version；engines/model_registry.py 解析；scripts/register_model.py 注册；batch_lineage、label_import 血缘表
 
 **Planned (no main flow change)**
 
@@ -210,6 +214,29 @@ We build the **vehicle**; the model team builds the **engine**. We own the pipel
 - [ ] **API upload**: Optional HTTP upload for return zip (reserved)
 
 **Done criteria**: Return path working; pseudo-label sampling and consistency check runnable; threshold alert active; training trigger has clear entry.
+
+### Active Labeling Priority (v2.11 Design)
+
+*Goal: Prioritize high-value images for labeling when time is limited; iterate until model accuracy is satisfactory.*
+
+**Design** (see **docs/active_labeling_priority.md**):
+
+1. **Value tiers**: inspection (low confidence) > refinery (high confidence); within inspection, lower confidence = higher value.
+2. **QC bonus**: Frames with jitter/black/blur/brightness (Warning) are edge cases—prioritize when image is still readable.
+3. **Sort formula**: `priority = f(1 - max_confidence, QC_warning_bonus)`; export manifest sorted by priority.
+4. **Skip empty**: `labeled_return.skip_empty_labels=true`—unlabeled similar frames discarded on merge.
+5. **Iteration loop**: Label high-value → return → merge → retrain → re-run pipeline → repeat until accuracy satisfied.
+
+**Done**
+
+- [x] skip_empty_labels: merge to training skips images with empty .txt
+- [x] Design doc: docs/active_labeling_priority.md
+
+**TODO**
+
+- [ ] production_tools: write max_confidence, qc_env to manifest
+- [ ] labeling_export: manifest includes priority fields; --sort-by-priority
+- [ ] export_for_cvat: optional priority-sorted export
 
 ---
 
@@ -269,6 +296,13 @@ We build the **vehicle**; the model team builds the **engine**. We own the pipel
 - **Effect**: Empty frames filtered by light model, large model only on candidate frames; throughput and cost optimized.
 - [x] **Done**: Config `vision.cascade_light_model_path`, `cascade_light_conf`; combined with I-frame and motion wake-up.
 
+#### 4.1 Cascade 领域定制（矿车等）— TODO
+
+- **问题**：COCO 级联对 car/truck 有效，但矿车等非 COCO 目标会被误判为空帧而过滤，漏检。
+- **方案**：用**领域数据**训练轻量模型（如 yolov8n），作为 `cascade_light_model_path`。空帧由级联过滤，有目标帧才跑主模型。
+- **效果**：省算力 + 不漏检；IE 优化无止境，持续为公司降本。
+- [ ] **TODO**：矿车场景时，训练 mining_truck_nano.pt，配置为 cascade；文档化「领域级联」最佳实践。
+
 ### Summary
 
 | Tech | Stage | Dependency | Relation to pipeline |
@@ -276,7 +310,7 @@ We build the **vehicle**; the model team builds the **engine**. We own the pipel
 | I-frame | Decode | OpenCV/FFmpeg | Replace or supplement "per-second full decode" ✅ |
 | Motion wake-up | Pre-sample/detect | OpenCV flow/diff | Add check in sampling loop ✅ |
 | Embedding/Re-ID | Post-output / separate task | Vector DB, small model | Parallel to QC, retrieval & "who-where" |
-| Cascade | Detect | Light .pt / ONNX | Add stage before vision_detector ✅ |
+| Cascade | Detect | Light .pt / ONNX | Add stage before vision_detector ✅；矿车等用领域级联（TODO） |
 
 All four combinable: e.g. **I-frame + motion wake-up** reduce decode and wake-ups, **cascade** reduce large-model calls, **Embedding/Re-ID** for retrieval and reports. See **docs/smart_slicing.md** and future "efficient screening" docs.
 
@@ -380,28 +414,42 @@ Recommend **Option A**: Clear batch semantics, simple DB/archive structure.
 
 ---
 
-## 🧬 Phase 3: Model-Ready & Deep Lineage (v3.x) — ⬜ TODO
+## 🧬 Phase 3: Model-Ready & Deep Lineage (v3.x) — 🔶 部分完成
 
 *Core: Data→model traceable, team can run models directly; Deep lineage closes MLflow loop*
 
 **Goal**: After v3, model team can train directly from pipeline output and trace "which model used which data".
 
-### Data Lineage & Transform Log
+### Data Lineage & Transform Log (v3.0 ✅)
 
-- [ ] **Transform Log**: Sampling rate, codec, resolution etc. auditable
-- [ ] **Lineage visualization**: Per Batch_ID view end-to-end flow (raw → QC → refinery/inspection → labeled → training)
-- [ ] **Label write-back link**: After labeling, write back to DB, link to batch/model version
+- [x] **Transform Log**: batch_lineage 表记录 batch_base、source_dir、refinery_dir、inspection_dir、transform_params（gate、algorithm_version、vision_model_version）
+- [x] **Lineage visualization**: scripts/query_lineage.py — `--batch`、`--import-id` 或默认列出最近批次
+- [x] **Label write-back link**: label_import 表记录 import_id、batch_ids、training_dir、consistency_rate、merged_count；import_labeled_return 达标并入后自动写入
 
-### MLflow Data→Model Traceability
+### MLflow Data→Model Traceability (v3.0 ✅)
 
-- [ ] **Dataset link**: MLflow run links to training data source (batch_id, refinery/inspection paths)
-- [ ] **Model lineage**: Model version traceable to training data batches and transform chain
-- [ ] **Reproducibility**: Given model version, trace back training data and QC params
+- [x] **Dataset link**: MLflow run params 含 refinery_dir、inspection_dir、source_archive_dir
+- [x] **Model lineage**: batch_lineage + label_import 元数据；可反查训练数据来源
+- [x] **Reproducibility**: query_lineage.py 给定 batch_id 反查 transform_params 与路径
+
+### Model Registry (v3.0 ✅)
+
+- [x] **config 引用 Registry**: vision.model_path、cascade_light_model_path 支持 `models:/name/version`；engines/model_registry.py 解析并下载到 models/registry_cache/
+- [x] **注册脚本**: scripts/register_model.py 将本地 .pt 注册到 MLflow Model Registry
 
 ### Labeling Workflow
 
 - [ ] Label Studio/CVAT integration; inspection organized by Batch, batch-copyable
-- [ ] After labeling, write back to DB, link to batch/model version
+- [x] After labeling, write back to DB, link to batch/model version（label_import 表，v3.0）
+
+#### 全自动标注闭环（v3 目标）
+
+*Goal: 自建 CVAT 开源版，API 全免费，闭环全自动化，零成本。*
+
+- [ ] **自部署 CVAT**：在本地电脑或公司服务器部署 CVAT 开源版（Docker），无 SaaS 费用
+- [ ] **API 全自动**：DataFactory 通过 CVAT REST API 自动创建 Project/Task、上传图片+伪标签、拉取标注结果
+- [ ] **闭环打通**：for_labeling → CVAT API 导入 → 人工/半自动标注 → API 导出 → import_labeled_return → training，全程脚本化
+- [ ] **零额外成本**：无 Label Studio Cloud、Roboflow 等按量付费；自托管即无限 API 调用
 
 ---
 

@@ -16,15 +16,28 @@ def get_video_paths(
 ) -> List[str]:
     """
     若 video_paths 已传入则校验并返回绝对路径列表；
-    否则从 paths.raw_video 扫描符合 extensions 的视频文件（排序）。
+    否则从 paths.raw_video 扫描：按 image_mode 或自动检测选择图片/视频通路。
     """
     paths = cfg.get("paths", {})
     raw_dir = paths.get("raw_video", "")
     if video_paths is not None:
         out = [os.path.abspath(p) for p in video_paths if os.path.isfile(p)]
         return out
-    exts = tuple(cfg.get("ingest", {}).get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
-    return file_tools.list_video_paths(raw_dir, exts)
+    mode = config_loader.get_content_mode(cfg)
+    if mode == "image":
+        logger.info("Ingest 通路: image（自动检测或显式配置）")
+    elif mode == "both":
+        logger.info("Ingest 通路: both（图片+视频混合）")
+    else:
+        logger.info("Ingest 通路: video（自动检测或显式配置）")
+    ingest_cfg = cfg.get("ingest", {})
+    img_exts = tuple(ingest_cfg.get("image_extensions", [".jpg", ".jpeg", ".png"]))
+    vid_exts = tuple(ingest_cfg.get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
+    if mode == "image":
+        return file_tools.list_image_paths_recursive(raw_dir, img_exts)
+    if mode == "both":
+        return file_tools.list_media_paths_recursive(raw_dir, img_exts, vid_exts)
+    return file_tools.list_video_paths_recursive(raw_dir, vid_exts)
 
 
 def _move_to_quarantine(src: str, subdir: str, cfg: dict) -> bool:
@@ -64,7 +77,12 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
     stats = {"quarantine_duplicate": 0, "quarantine_decode_failed": 0}
     seen_fp: set = set()
 
-    for path in video_paths:
+    try:
+        from tqdm import tqdm
+        path_iter = tqdm(video_paths, desc="Ingest 预检", unit="文件")
+    except ImportError:
+        path_iter = video_paths
+    for path in path_iter:
         if not os.path.isfile(path):
             continue
 
@@ -78,7 +96,6 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
                     if _move_to_quarantine(path, "duplicate", cfg):
                         stats["quarantine_duplicate"] += 1
                         logger.info("Ingest 预检-重复: 已移入 quarantine — %s", os.path.basename(path))
-                        print(f"   🚫 [Ingest 预检] 重复: {os.path.basename(path)} → quarantine/duplicate/")
                     continue
                 seen_fp.add(fp)
 
@@ -88,7 +105,6 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
                 if _move_to_quarantine(path, "decode_failed", cfg):
                     stats["quarantine_decode_failed"] += 1
                     logger.warning("Ingest 预检-解码失败: 已移入 quarantine — %s", os.path.basename(path))
-                    print(f"   🚫 [Ingest 预检] 解码失败: {os.path.basename(path)} → quarantine/decode_failed/")
                 continue
 
         passed.append(path)

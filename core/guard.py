@@ -17,18 +17,17 @@ logger = logging.getLogger(__name__)
 POLL_INTERVAL_DEFAULT = 30
 
 
-def _list_videos(cfg: dict) -> list:
-    paths = cfg.get("paths", {})
-    raw = paths.get("raw_video", "")
-    exts = tuple(cfg.get("ingest", {}).get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
-    return file_tools.list_video_paths(raw, exts)
+def _list_raw_media(cfg: dict) -> list:
+    """扫描 raw 目录（递归），按 content_mode 返回图片或视频路径。"""
+    from core import ingest
+    return ingest.get_video_paths(cfg)
 
 
 def startup_scan(cfg: dict = None) -> None:
     """开机扫描：将 raw_video 下存量视频作为一批送入工厂。cfg 未传则从 config_loader 加载。"""
     if cfg is None:
         cfg = config_loader.load_config()
-    paths = _list_videos(cfg)
+    paths = _list_raw_media(cfg)
     if not paths:
         logger.info("开机自检: 未发现存量视频")
         return
@@ -42,7 +41,17 @@ def startup_scan(cfg: dict = None) -> None:
     print("🧹 [开机大扫除] 存量处理完毕，启动实时监控。\n")
 
 
-def _is_video(name: str, exts: list) -> bool:
+def _get_media_extensions(cfg: dict) -> tuple:
+    """按 content_mode 返回对应扩展名。"""
+    from config import config_loader
+    mode = config_loader.get_content_mode(cfg)
+    ig = cfg.get("ingest", {})
+    if mode == "image":
+        return tuple(ig.get("image_extensions", [".jpg", ".jpeg", ".png"]))
+    return tuple(ig.get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"]))
+
+
+def _is_media(name: str, exts: tuple) -> bool:
     return any(name.lower().endswith(ext) for ext in exts)
 
 
@@ -50,8 +59,8 @@ def _handle_new_file(handler_self, path: str):
     if not path or not os.path.isfile(path):
         return
     name = os.path.basename(path)
-    exts = handler_self._cfg.get("ingest", {}).get("video_extensions", [".mp4", ".mov", ".avi", ".mkv"])
-    if not _is_video(name, exts):
+    exts = _get_media_extensions(handler_self._cfg)
+    if not _is_media(name, exts):
         return
     abs_path = os.path.abspath(path)
     print(f"\n📡 [保安报告]: 监测到新物料 -> {name}，等待写入稳定并凑批...")
@@ -87,7 +96,7 @@ class VideoFolderHandler(FileSystemEventHandler):
                 self._pending_flush = True
                 logger.info("产线加工中，新物料已登记，本批结束后将自动再扫")
                 return
-            paths = _list_videos(self._cfg)
+            paths = _list_raw_media(self._cfg)
             if not paths:
                 return
             self._processing = True
@@ -114,10 +123,17 @@ class VideoFolderHandler(FileSystemEventHandler):
     def on_moved(self, event):
         if event.is_directory:
             return
-        # 文件被移入 raw 时，dest_path 在监控目录内
+        # 文件被移入 raw 或其子目录时触发
         dest = getattr(event, "dest_path", None)
-        if dest and os.path.dirname(os.path.abspath(dest)) == os.path.abspath(self._watch_path):
-            _handle_new_file(self, dest)
+        if not dest or not os.path.isfile(dest):
+            return
+        watch_abs = os.path.abspath(self._watch_path)
+        dest_abs = os.path.abspath(dest)
+        try:
+            if os.path.commonpath([watch_abs, dest_abs]) == watch_abs:
+                _handle_new_file(self, dest)
+        except ValueError:
+            pass
 
 
 def _poll_loop(handler: "VideoFolderHandler", interval: float, stop_event: threading.Event) -> None:
@@ -154,7 +170,7 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     print("🤖 运行模式: 批处理 → 先检测（质量+重复）→ 一封邮件 → 再逐项询问放行/丢弃")
     observer = Observer()
     handler = VideoFolderHandler(cfg)
-    observer.schedule(handler, watch_path, recursive=False)
+    observer.schedule(handler, watch_path, recursive=True)
     observer.start()
 
     poll_interval = cfg.get("ingest", {}).get("poll_interval_seconds", POLL_INTERVAL_DEFAULT)

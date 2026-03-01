@@ -76,6 +76,7 @@ Guard 模式下保安持续巡逻 raw 目录，发现新视频即凑批送厂。
 
 - **[architecture_thinking.md](architecture_thinking.md)** — 架构进阶：依赖注入、接口/协议、状态机、事件驱动、配置验证、错误处理等可选增强。
 - **[Roadmap.md](Roadmap.md)** — 版本规划；v3 Auto-modality routing、Backward Compatibility；v4 Temporal Sync、Resource Locking。
+- **[active_labeling_priority.md](active_labeling_priority.md)** — 主动学习标注优先级：时间紧优先标低 confidence + QC 异常；迭代闭环直至精度满意。
 
 ---
 

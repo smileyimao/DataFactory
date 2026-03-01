@@ -8,9 +8,11 @@
 
 | 键 | 说明 | 默认 |
 |----|------|------|
-| `modality` | 信号类型：`video`（当前唯一实现）、`audio`、`vibration`（v3 扩展） | `video` |
+| `modality` | 信号类型：`video`、`image`（v2.10）、`audio`、`vibration`（v3 扩展） | `video` |
 
-流程与信号类型解耦。切换 modality 时，Ingest decode_check、Funnel QC、Archive 按 `engines/modality_handlers` 分发。v3 扩展 audio/vibration（predictive maintenance、FFT 频谱）时，在此配置即可。
+流程与信号类型解耦。切换 modality 时，Ingest decode_check、Funnel QC、Archive 按 `engines/modality_handlers` 分发。
+
+**v2.10 image 通路**：`ingest.image_mode: "auto"` 时根据 raw 目录内容自动判定 image/video/both；`true` 强制图片、`false` 强制视频、`"both"` 混合（v2.10.1）。详见 **docs/image_mode.md**。
 
 **v3 演进**：将引入 `modality_filter`（按文件自动识别后过滤）；旧 `modality: "video"` 等价 `modality_filter: ["video"]`，零改动迁移。详见 **docs/Roadmap.md** Auto-modality Routing。
 
@@ -20,7 +22,7 @@
 
 | 键 | 说明 | 默认/示例 |
 |----|------|-----------|
-| `raw_video` | 原材料视频目录，单次/Guard 均从此扫描 | `storage/raw` |
+| `raw_video` | 原材料目录，单次/Guard 均从此**递归**扫描（支持子目录、深层嵌套） | `storage/raw` |
 | `test_source` | 测试源目录：`main.py --test` 从此复制到 raw，pipeline 不改动此目录 | `storage/test/original` |
 | `data_warehouse` | 合格成品归档目录（按 Batch 建子目录） | `storage/archive` |
 | `rejected_material` | 不合格废片归档目录 | `storage/rejected` |
@@ -51,6 +53,8 @@
 |----|------|------|
 | `batch_wait_seconds` | Guard 模式下，新文件落地后等待多少秒再凑批（期间新文件会重置计时） | `8` |
 | `poll_interval_seconds` | 轮询兜底间隔（秒）：定期扫 raw 目录，Watchdog 漏检时仍能发现；`0` 表示不轮询 | `30` |
+| `image_mode` | 内容通路：`"auto"` 自动判定（有图+有视频→both），`true` 强制图片，`false` 强制视频，`"both"` 混合 | `"auto"` |
+| `image_extensions` | 视为图片的文件扩展名（image 通路时递归扫描） | `[".jpg", ".jpeg", ".png"]` |
 | `video_extensions` | 视为视频的文件扩展名 | `[".mp4", ".mov", ".avi", ".mkv"]` |
 | `file_stable_check_interval` | 文件稳定性检测：轮询间隔（秒） | `1` |
 | `file_stable_min_seconds` | 文件大小不变持续多少秒视为稳定 | `2` |
@@ -92,6 +96,8 @@
 详见 **docs/smart_slicing.md**（YOLO 筛查与只落盘关键帧）。
 
 **四板斧（vision 段）**：`use_i_frame_only` 只解 I-帧；`motion_threshold` 运动唤醒（0=关闭）；`cascade_light_model_path` 级联轻量模型；`cascade_light_conf` 级联置信度。详见 **docs/Roadmap.md** 高效筛查技术线。
+
+**v3.0 Model Registry**：`vision.model_path`、`cascade_light_model_path` 支持 `models:/name/version`（MLflow Model Registry URI）；自动解析并下载到 `models/registry_cache/`。注册本地 .pt：`python scripts/register_model.py path/to/model.pt --name vehicle_detector`。
 
 命令行 `--gate 90` 可覆盖 `pass_rate_gate`。
 
@@ -143,7 +149,9 @@
 
 用于 `scripts/import_labeled_return.py`：回传与伪标签对比后，低于门槛则发邮件，达标则并入 `paths.training`，并按 batch_id 写回 `archive/Batch_xxx/labeled/`（使用 `retry_utils.safe_copy_with_retry` 防静默失败）。
 
-**MLflow**（`config mlflow`）：`tracking_uri` 默认 `null` 时自动设为 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录；`enabled` 控制是否记录批次实验。
+**MLflow**（`config mlflow`）：`tracking_uri` 默认 `null` 时自动设为 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录；`enabled` 控制是否记录批次实验。**v3.0 血缘**：run params 含 refinery_dir、inspection_dir、source_archive_dir，便于追溯数据来源。
+
+**v3.0 数据血缘**：`paths.db_file` 指向的 DB 含 `batch_lineage`、`label_import` 表；pipeline 归档后自动写入；`python scripts/query_lineage.py` 查询。
 
 ---
 

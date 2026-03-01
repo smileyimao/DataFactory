@@ -11,10 +11,12 @@ from datetime import datetime
 from core import time_utils
 from typing import Any, Dict, List, Optional, Tuple
 
+from engines import file_tools
+
 logger = logging.getLogger(__name__)
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp"}
-YOLO_LINE_LEN = 5  # class_id x_center y_center w h
+YOLO_LINE_LEN = 5  # class_id x_center y_center w h（第 6 列 conf 可选，对比时忽略）
 
 
 def _toronto_now() -> str:
@@ -22,7 +24,7 @@ def _toronto_now() -> str:
 
 
 def parse_yolo_txt(txt_path: str) -> List[Tuple[int, float, float, float, float]]:
-    """解析 YOLO .txt，返回 [(class_id, x_center, y_center, w, h), ...]，归一化坐标。"""
+    """解析 YOLO .txt，返回 [(class_id, x_center, y_center, w, h), ...]，归一化坐标。支持 6 列（含 conf），第 6 列忽略。"""
     out = []
     if not os.path.isfile(txt_path):
         return out
@@ -107,7 +109,7 @@ def load_export_manifest(for_labeling_dir: str) -> Dict[str, Dict[str, Any]]:
         return {}
     with open(manifest_path, "r", encoding="utf-8") as f:
         items = json.load(f)
-    # 导出时命名规则: batch_id_filename
+    # 导出时命名规则: batch_id_filename；CVAT 导出可能用 sanitized（空格→下划线）
     out = {}
     for it in items:
         batch_id = it.get("batch_id", "")
@@ -118,7 +120,24 @@ def load_export_manifest(for_labeling_dir: str) -> Dict[str, Dict[str, Any]]:
         out[export_name] = it
         base, ext = os.path.splitext(filename)
         out[f"{batch_id}_{base}.txt"] = it  # txt 用同一 source 路径推算
+        # 支持 CVAT 导出的 sanitized 文件名（export_for_cvat 将空格替换为下划线）
+        safe_export = file_tools.sanitize_filename(export_name)
+        if safe_export != export_name:
+            out[safe_export] = it
+            out[file_tools.sanitize_filename(f"{batch_id}_{base}.txt")] = it
     return out
+
+
+def _collect_batch_ids_from_manifest(manifest_map: Dict[str, Dict[str, Any]], import_dir: str) -> List[str]:
+    """从 manifest 与 import_dir 内文件收集涉及的 batch_id 列表（去重）。"""
+    seen: set = set()
+    for name in os.listdir(import_dir):
+        entry = manifest_map.get(name) or manifest_map.get(os.path.splitext(name)[0] + ".txt")
+        if entry:
+            bid = (entry.get("batch_id") or "").strip()
+            if bid:
+                seen.add(bid)
+    return sorted(seen)
 
 
 def get_pseudo_txt_path(manifest_entry: Dict[str, Any]) -> str:
@@ -277,25 +296,40 @@ def merge_to_training(
     import_id: str,
     cfg: Optional[dict] = None,
 ) -> int:
-    """将 import_dir 内图片+txt 并入 training_dir/import_id/，返回文件数。使用 retry 防静默失败。"""
+    """将 import_dir 内图片+txt 并入 training_dir/import_id/，返回文件数。使用 retry 防静默失败。
+    若 labeled_return.skip_empty_labels 为 true，则跳过 .txt 为空的图（未标的变化不大相似帧）。"""
     from engines import retry_utils
     retry_cfg = (cfg or {}).get("retry", {})
     max_attempts = retry_cfg.get("max_attempts", 3)
     backoff = retry_cfg.get("backoff_seconds", 1.0)
+    skip_empty = (cfg or {}).get("labeled_return", {}).get("skip_empty_labels", False)
     dest = os.path.join(training_dir, import_id)
     os.makedirs(dest, exist_ok=True)
     count = 0
+    skipped_empty = 0
     for name in sorted(os.listdir(import_dir)):
         path = os.path.join(import_dir, name)
         if not os.path.isfile(path):
             continue
         ext = os.path.splitext(name)[1].lower()
-        if ext in IMAGE_EXT or ext == ".txt":
-            dest_path = os.path.join(dest, name)
-            if retry_utils.safe_copy_with_retry(path, dest_path, max_attempts, backoff):
-                count += 1
-            # 失败时 safe_copy_with_retry 已打 warning，不静默
-    logger.info("训练集并入: %s -> %s, %d 个文件", import_id, dest, count)
+        if ext not in IMAGE_EXT and ext != ".txt":
+            continue
+        if skip_empty and ext in IMAGE_EXT:
+            base, _ = os.path.splitext(name)
+            txt_path = os.path.join(import_dir, base + ".txt")
+            if not os.path.isfile(txt_path) or not parse_yolo_txt(txt_path):
+                skipped_empty += 1
+                continue
+        if skip_empty and ext == ".txt":
+            if not parse_yolo_txt(path):
+                continue
+        dest_path = os.path.join(dest, name)
+        if retry_utils.safe_copy_with_retry(path, dest_path, max_attempts, backoff):
+            count += 1
+    if skipped_empty > 0:
+        logger.info("训练集并入: %s -> %s, %d 个文件（跳过 %d 张无标注图）", import_id, dest, count, skipped_empty)
+    else:
+        logger.info("训练集并入: %s -> %s, %d 个文件", import_id, dest, count)
     return count
 
 
@@ -309,6 +343,7 @@ def copy_to_batch_labeled(
     """
     将达标标注按 batch_id 写回 archive/Batch_xxx/labeled/，保持批次血缘。
     使用 retry 防磁盘满/权限不足时静默失败；失败时打 warning 并计入 metrics。
+    若 labeled_return.skip_empty_labels 为 true，跳过无标注的图。
     返回写入 batch labeled 的文件数。
     """
     from engines import retry_utils
@@ -317,11 +352,20 @@ def copy_to_batch_labeled(
     retry_cfg = (cfg or {}).get("retry", {})
     max_attempts = retry_cfg.get("max_attempts", 3)
     backoff = retry_cfg.get("backoff_seconds", 1.0)
+    skip_empty = (cfg or {}).get("labeled_return", {}).get("skip_empty_labels", False)
     count = 0
     for name in sorted(os.listdir(import_dir)):
         ext = os.path.splitext(name)[1].lower()
         if ext not in IMAGE_EXT and ext != ".txt":
             continue
+        if skip_empty and ext in IMAGE_EXT:
+            base, _ = os.path.splitext(name)
+            txt_path = os.path.join(import_dir, base + ".txt")
+            if not os.path.isfile(txt_path) or not parse_yolo_txt(txt_path):
+                continue
+        if skip_empty and ext == ".txt":
+            if not parse_yolo_txt(os.path.join(import_dir, name)):
+                continue
         entry = manifest_map.get(name)
         if not entry:
             base, _ = os.path.splitext(name)
@@ -418,6 +462,20 @@ def run_full_pipeline(
         batch_labeled_count = copy_to_batch_labeled(
             import_dir, manifest_map, archive_base, labeled_subdir, cfg
         )
+        # v3 血缘：记录 label_import 关联
+        batch_ids = _collect_batch_ids_from_manifest(manifest_map, import_dir)
+        if batch_ids and training_dir:
+            from engines import db_tools
+            db_path = paths.get("db_file", "")
+            if db_path:
+                db_tools.record_label_import(
+                    db_path,
+                    import_id,
+                    batch_ids,
+                    os.path.join(training_dir, import_id),
+                    consistency_rate,
+                    merged_count,
+                )
 
     return {
         "ok": True,

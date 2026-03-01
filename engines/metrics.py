@@ -16,22 +16,7 @@ def inc(name: str, delta: int = 1) -> None:
         _counters[name] = _counters.get(name, 0) + delta
 
 
-def get(name: str) -> int:
-    """获取计数值。"""
-    with _lock:
-        return _counters.get(name, 0)
-
-
 def get_all() -> Dict[str, int]:
     """获取所有计数器（快照）。"""
     with _lock:
         return dict(_counters)
-
-
-def reset(name: str = None) -> None:
-    """重置计数器。name 为 None 时重置全部。"""
-    with _lock:
-        if name is None:
-            _counters.clear()
-        else:
-            _counters.pop(name, None)

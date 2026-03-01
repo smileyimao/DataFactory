@@ -69,14 +69,7 @@ def run_qc(
         if fp:
             seen_fp_in_batch.add(fp)
 
-    duplicate_paths = [v for v in video_paths if v not in paths_need_sample]
-    print(f"\n🚀 [指挥部] 准入标准 {gate}% | 重复检测")
-    if duplicate_paths:
-        print("  重复清单:")
-        for v in duplicate_paths:
-            print(f"    - {os.path.basename(v)}")
-    else:
-        print("  （无重复）")
+    print(f"\n🚀 [指挥部] 质量准入标准 {gate}%")
 
     # 抽检用临时目录，P2：TemporaryDirectory 上下文管理器，异常时自动清理
     results: List[Dict[str, Any]] = []
@@ -120,12 +113,11 @@ def run_qc(
             retry_cfg = cfg.get("retry", {})
             max_attempts = retry_cfg.get("max_attempts", 3)
             backoff = retry_cfg.get("backoff_seconds", 1.0)
-            for v_path in video_paths:
+            from tqdm import tqdm
+            for v_path in tqdm(video_paths, desc="归档 source", unit="文件"):
                 dest = os.path.join(source_archive_dir, os.path.basename(v_path))
                 logger.info("Moving [%s] to [%s] due to [Batch archive source]", os.path.basename(v_path), os.path.abspath(dest))
-                if retry_utils.safe_move_with_retry(v_path, dest, max_attempts, backoff):
-                    print(f"📦 [归档成功]: {os.path.basename(v_path)} -> source")
-                else:
+                if not retry_utils.safe_move_with_retry(v_path, dest, max_attempts, backoff):
                     print(f"⚠️ [归档失败]: {v_path}")
 
             manifest_path = os.path.join(temp_qc, "manifest.json")
@@ -234,7 +226,9 @@ def run_qc(
         ),
     }
     logger.info("版本映射: algorithm_version=%s vision_model_version=%s", version_info["algorithm_version"], version_info["vision_model_version"])
-    vision_result = vision_detector.run_vision_scan(cfg, [item["archive_path"] for item in qc_archive])
+    vision_result = vision_detector.run_vision_scan(
+        cfg, [item["archive_path"] for item in qc_archive], return_detections=True
+    )
     vision_skipped = False
     if not vision_result and qc_archive:
         # 模型未加载或未启用时仍生成报告，表格中每文件一行“未执行”，避免报告一片空白
@@ -302,19 +296,26 @@ def run_qc(
             body_lines.append("\n\n请根据控制台逐项复核 (y/n/all/none)，不放行的将移至废片库或冗余库。")
         body_lines.append("\n附件含：1. 重复+质量（工业报表） 2. 智能检测结果（含缩略图）。\n--------------------------------------------------\n本邮件由 Datafactory 自动生成。")
         extra = [p for p in [industrial_report_path, vision_report_path] if p and os.path.isfile(p)]
-        notifier.send_mail(
+        sent = notifier.send_mail(
             email_cfg,
             f"【批次质检报告】待处理物料清单 - Batch:{batch_id}",
             "\n".join(body_lines),
             report_path=report_path,
             extra_attachments=extra if extra else None,
         )
+        if not sent:
+            print("⚠️ [邮件] 未发送成功，请检查 .env 中 EMAIL_PASSWORD 及 smtp 配置")
     print(f"📍 质量报告: file://{os.path.abspath(report_path)}")
     print(f"📍 工业报表: file://{os.path.abspath(industrial_report_path)}")
     print(f"📍 智能检测报告: file://{os.path.abspath(vision_report_path)}")
 
     vision_total_detections = sum(p.get("n_detections") or 0 for p in vision_result)
     tiered = cfg.get("production_setting", {}).get("confidence_tiered_output", True)
+    qc_detections_by_video = {
+        e.get("name", ""): e.get("detections_by_frame") or {}
+        for e in vision_result
+        if e.get("name")
+    }
     path_info = {
         "batch_id": batch_id,
         "qc_dir": report_dir,
@@ -329,5 +330,6 @@ def run_qc(
         "vision_total_detections": vision_total_detections,
         "gate": gate,
         "version_mapping": version_info,
+        "qc_detections_by_video": qc_detections_by_video,
     }
     return qc_archive, qualified, blocked, auto_reject, path_info

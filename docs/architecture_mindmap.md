@@ -98,6 +98,10 @@ flowchart TD
         CL --> CL5[Version Mapping]
         CL --> CL6[Data-Code-Model lineage]
         CL --> CL7[待标池自动更新]
+        CL --> CL8[主动学习标注优先级]
+        CL8 --> CL8a[低 confidence 优先]
+        CL8 --> CL8b[QC Warning 加分]
+        CL8 --> CL8c[skip_empty_labels]
     end
 
     DF --> ENTRY
@@ -119,7 +123,7 @@ flowchart TD
 | ------------------------ | ------------------------------------------------------------------------------------------ |
 | **Path Decoupling**      | `config/settings.yaml` paths；`get_batch_paths()`、`get_batch_media_subdirs()`               |
 | **Hardware Abstraction** | 路径集中配置；`DATAFACTORY_RAW_VIDEO` 等 env 覆盖                                                    |
-| **Modality 解耦**           | `config modality`；`modality_handlers.decode_check` 按 modality 分发；v3 Auto-modality routing 按文件自动识别并路由 |
+| **Modality 解耦**           | `config modality`；`modality_handlers.decode_check` 按 modality 分发；v2.10.1 both 模式：raw 有图+有视频时混合处理，decode_check 按扩展名 per-file |
 | **Ingest 预检**            | dedup + decode_check（按 modality）；失败项移入 `quarantine/duplicate`、`quarantine/decode_failed` |
 | **SSOT**                 | 批次目录名、前缀、后缀均在 settings.yaml                                                                |
 | **Validation Layer**     | `validate_config()`：min<max、gate 范围、双门槛一致性                                                 |
@@ -172,7 +176,10 @@ flowchart TD
 | **Consistency Validation** | `import_labeled_return.py`；IoU 匹配；一致率门槛；达标后 copy_to_batch_labeled 写回 Batch_xxx/labeled（safe_copy 防静默失败） |
 | **Version Mapping**        | `version_info.json`；algorithm_version / vision_model_version |
 | **MLflow 存储**            | `tracking_uri` 默认 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录 |
+| **数据血缘 (v3.0)**       | `batch_lineage`、`label_import` 表；pipeline 归档后自动写入；`scripts/query_lineage.py` 查询 |
+| **Model Registry (v3.0)** | `vision.model_path` 支持 `models:/name/version`；`engines/model_registry.py` 解析；`scripts/register_model.py` 注册 |
 | **待标池自动更新**         | `labeling_export.auto_update_after_batch()`；每批归档后自动将 inspection 追加到 for_labeling；`labeling_pool.auto_update_after_batch` 配置 |
+| **主动学习标注优先级**     | 时间紧优先标低 confidence + QC 异常；`skip_empty_labels` 丢弃未标相似帧；manifest 扩展 max_confidence/qc_env 待实现；见 docs/active_labeling_priority.md |
 
 ---
 
@@ -190,6 +197,8 @@ flowchart TD
 
 | 概念 | 版本 | 实现 |
 |------|------|------|
+| **数据血缘** | v3.0 ✅ | batch_lineage、label_import 表；query_lineage.py；MLflow run params 含 refinery/inspection 路径 |
+| **Model Registry** | v3.0 ✅ | vision.model_path 支持 models:/name/version；model_registry.resolve_model_uri；register_model.py |
 | **Auto-modality Routing** | v3 | `detect_modality(path)` 按扩展名/内容识别；`modality_filter` 替代 `modality`；按 modality 分组路由 |
 | **Backward Compatibility** | v3 | 旧 `modality: "video"` 等价 `modality_filter: ["video"]`；config_loader 平滑迁移 |
 | **Temporal Sync** | v4 | 入库统一 `observed_at` 字段；多模态时间对齐，支持「10:00 震动 + 10:00 视频」融合分析 |
@@ -199,4 +208,4 @@ flowchart TD
 
 ---
 
-*文档版本：v2.10 | 补全 Guard、--test、放行分流、待标池自动更新*
+*文档版本：v3.0 | 补全数据血缘、Model Registry、query_lineage、register_model*

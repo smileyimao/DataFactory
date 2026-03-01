@@ -54,11 +54,16 @@ def export_manifest_for_labeling(
     export_dir: str,
     max_batches: Optional[int] = None,
     cfg: Optional[Dict[str, Any]] = None,
+    inspection_only: bool = False,
+    refinery_only: bool = False,
 ) -> str:
     """
     扫描 archive_dir 下所有 Batch_* 目录，汇总媒体文件清单，写入 export_dir/manifest_for_labeling.json。
     返回写入的 manifest 文件路径。cfg 可选，用于 path decoupling。
+    inspection_only / refinery_only 二选一，仅导出对应子目录。
     """
+    if inspection_only and refinery_only:
+        raise ValueError("inspection_only 与 refinery_only 不可同时指定")
     os.makedirs(export_dir, exist_ok=True)
     batch_prefix = "Batch_"
     if cfg:
@@ -72,11 +77,18 @@ def export_manifest_for_labeling(
     if max_batches is not None:
         batch_dirs = batch_dirs[-max_batches:]
 
+    subdirs = (cfg.get("paths", {}) or {}).get("batch_subdirs") or {}
+    inspection_subdir = subdirs.get("inspection", "inspection")
+    refinery_subdir = subdirs.get("refinery", "refinery")
     manifest = []
     for batch_dir in batch_dirs:
         batch_id = os.path.basename(batch_dir)
         items = list_batch_media(batch_dir, cfg=cfg)
         for item in items:
+            if inspection_only and item.get("subdir") != inspection_subdir:
+                continue
+            if refinery_only and item.get("subdir") != refinery_subdir:
+                continue
             item["batch_id"] = batch_id
             manifest.append(item)
 
@@ -113,7 +125,12 @@ def export_manifest_for_labeling(
     return out_path
 
 
-def run_export_from_config(cfg: Dict[str, Any], max_batches: Optional[int] = None) -> Optional[str]:
+def run_export_from_config(
+    cfg: Dict[str, Any],
+    max_batches: Optional[int] = None,
+    inspection_only: bool = False,
+    refinery_only: bool = False,
+) -> Optional[str]:
     """
     从配置读取 paths.data_warehouse（archive）与 paths.labeling_export（导出目录），
     若存在 labeling_export 则执行导出并返回 manifest 路径；否则返回 None。
@@ -123,7 +140,10 @@ def run_export_from_config(cfg: Dict[str, Any], max_batches: Optional[int] = Non
     export_dir = paths.get("labeling_export")
     if not export_dir or not os.path.isdir(archive):
         return None
-    return export_manifest_for_labeling(archive, export_dir, max_batches=max_batches, cfg=cfg)
+    return export_manifest_for_labeling(
+        archive, export_dir, max_batches=max_batches, cfg=cfg,
+        inspection_only=inspection_only, refinery_only=refinery_only,
+    )
 
 
 def _collect_media_from_dir(dir_path: str) -> List[Dict[str, Any]]:
