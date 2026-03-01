@@ -23,6 +23,15 @@
 * **CVAT 导入失败**：`production_tools` 源头输出帧时对媒体名去空格；`export_for_cvat` 二次兜底；`labeled_return` 支持 sanitized 回传；`scripts/demo_prepare.sh` 预演练验证 zip 可导入。
 * **CVAT 伪标签上传**：统一用 CVAT for images 1.1 原生格式。`export_for_cvat.py` 仅生成图片 zip；`export_for_cvat_native.py` 生成标注 zip；删除 LabelMe/COCO/Ultralytics 等格式。
 
+#### 审计与重构（2026-02-20）
+* **删除 legacy/**：移除 5 个废弃模块（main_factory、factory_guard、core_engine、db_manager、factory_config.yaml）。
+* **删除 6 个死函数**：`init_storage_structure`、`get_paths`、`upload_images`、`list_video_paths`、`metrics.get`、`metrics.reset`。
+* **公共函数抽取**：`engines/file_tools.sanitize_filename()` 替换 4 处重复；`config_loader.get_config_and_paths()` 替换 9 个脚本的配置加载。
+* **本地 CVAT 对接**：`scripts/cvat_api.py` 封装 create_project、create_task、upload_images_from_zip、upload_annotations；main.py 支持 `--input`、`--auto-cvat`，pipeline 结束后自动创建 Task、上传图片与伪标签、打印报告。
+* **新增脚本**：`export_for_cvat`、`export_for_cvat_native`、`cvat_api`、`query_lineage`、`register_model`、`count_vehicles_track`、`test_email`、`cvat_upload_annotations`、`cvat_setup_labels`、`run_demo_a.sh`、`demo_prepare.sh`。
+* **修复**：`run_demo_a.sh` 删除无效的 `--format coco` 参数。
+* **docs/AUDIT_REPORT.md**：项目全面审计报告（死代码、重复、废弃、配置、脚本清单）。
+
 ---
 
 ## [v2.10.1] - 2026-02-27

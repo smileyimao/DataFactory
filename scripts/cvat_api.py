@@ -95,7 +95,7 @@ def create_task(project_id: Optional[int], name: str) -> Optional[int]:
 
 def upload_images_from_zip(task_id: int, zip_path: str) -> bool:
     """
-    直接上传 for_cvat.zip 到 Task。更高效。
+    上传 for_cvat.zip 到 Task，轮询 CVAT v2 /api/requests/{rq_id} 等待完成。
     返回是否成功。
     """
     if not requests or not os.path.isfile(zip_path):
@@ -106,33 +106,43 @@ def upload_images_from_zip(task_id: int, zip_path: str) -> bool:
     with open(zip_path, "rb") as f:
         r = sess.post(
             f"{CVAT_URL}/api/tasks/{task_id}/data",
-            files={"client_files": (os.path.basename(zip_path), f, "application/zip")},
+            files={"client_files[0]": (os.path.basename(zip_path), f, "application/zip")},
             data={"image_quality": 75},
             timeout=600,
         )
-    sess.close()
     if r.status_code not in (200, 201, 202):
+        sess.close()
         return False
-    # 等待处理完成
-    for _ in range(120):
-        time.sleep(2)
-        s = _get_session()
-        if s:
-            try:
-                r2 = s.get(f"{CVAT_URL}/api/tasks/{task_id}/status", timeout=10)
-                s.close()
+
+    # CVAT v2：从响应拿 rq_id，轮询 /api/requests/{rq_id}
+    try:
+        rq_id = r.json().get("rq_id", "")
+    except Exception:
+        rq_id = ""
+
+    if rq_id:
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(rq_id, safe="")
+            for _ in range(120):
+                time.sleep(2)
+                r2 = sess.get(f"{CVAT_URL}/api/requests/{encoded}", timeout=10)
                 if r2.status_code == 200:
-                    st = r2.json()
-                    if st.get("state") == "Finished":
+                    status = r2.json().get("status", "")
+                    if status == "finished":
+                        sess.close()
                         return True
-                    if st.get("state") == "Failed":
+                    if status == "failed":
+                        sess.close()
                         return False
-            except Exception:
-                pass
+        except Exception:
+            pass
+
+    sess.close()
     return True
 
 
-def upload_annotations(task_id: int, xml_path: str, format_name: str = "CVAT for images 1.1") -> bool:
+def upload_annotations(task_id: int, xml_path: str, format_name: str = "CVAT 1.1") -> bool:
     """
     上传标注。xml_path 为 for_cvat_native.zip（含 annotations.xml）。
     返回是否成功。

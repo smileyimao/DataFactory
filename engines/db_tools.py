@@ -65,6 +65,25 @@ def init_db(db_path: str) -> bool:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # v3.1 模型训练血缘
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS model_train (
+                run_id        TEXT PRIMARY KEY,
+                model_name    TEXT,
+                registry_uri  TEXT,
+                base_model    TEXT,
+                training_dir  TEXT,
+                import_ids    TEXT,
+                dataset_size  INTEGER,
+                epochs        INTEGER,
+                map50         REAL,
+                map50_95      REAL,
+                precision     REAL,
+                recall        REAL,
+                mlflow_run_id TEXT,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
         conn.close()
         return True

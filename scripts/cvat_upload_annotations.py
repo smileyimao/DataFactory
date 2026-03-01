@@ -22,7 +22,7 @@ BASE_DIR = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, BASE_DIR)
 
 FORMATS = {
-    "cvat": ("CVAT for images 1.1", "storage/for_labeling/for_cvat_native.zip"),
+    "cvat": ("CVAT 1.1", "storage/for_labeling/for_cvat_native.zip"),
 }
 
 
