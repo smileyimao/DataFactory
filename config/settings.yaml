@@ -105,7 +105,7 @@ vision:
 mlflow:
   enabled: true
   experiment_name: "datafactory"
-  tracking_uri: null   # null 则用 db/mlflow.db（config_loader 默认）
+  tracking_uri: "http://0.0.0.0:5000"  # MLflow server，局域网可访问；改回 null 退回本地 sqlite
 
 # M2 版本映射：日志与元数据中可写可读，便于 v4 血缘与审计
 version_mapping:

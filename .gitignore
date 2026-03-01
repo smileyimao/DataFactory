@@ -34,5 +34,9 @@ tests/output/
 # MLflow 与模型文件（本地运行生成，不提交）
 mlruns/
 mlflow.db
+mlflow_artifacts/
 models/*.pt
 models/registry_cache/
+storage/training/
+storage/train_runs/
+storage/labeled_return/
