@@ -71,7 +71,7 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
 
     dedup = ingest_cfg.get("dedup_at_ingest", True)
     decode_check = ingest_cfg.get("decode_check_at_ingest", True)
-    db_path = cfg.get("paths", {}).get("db_file", "")
+    db_path = cfg.get("paths", {}).get("db_url", "")
 
     passed: List[str] = []
     stats = {"quarantine_duplicate": 0, "quarantine_decode_failed": 0}

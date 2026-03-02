@@ -47,13 +47,16 @@ def main():
 
     r = result
     print(f"\n📋 回传批次: {r['import_id']}")
-    print(f"   一致率: {r['consistency_rate']:.2%}  (门槛 {r['threshold']:.0%})")
+    print(f"   伪标签一致率: {r['consistency_rate']:.2%}  (门槛 {r['threshold']:.0%})  ← 衡量与伪标签差异，非标注质量")
     print(f"   差异条数: {r['diff_count']}")
     print(f"   结果: {'✅ 达标' if r['passed'] else '⚠️ 未达标，已触发报警'}")
     if r.get("merged_count", 0) > 0:
         print(f"   已并入训练集: {r['merged_count']} 个文件")
     if r.get("batch_labeled_count", 0) > 0:
         print(f"   已写回批次 labeled: {r['batch_labeled_count']} 个文件")
+    if r.get("refinery_rate") is not None:
+        status = "✅" if r["refinery_rate"] >= r["threshold"] else "⚠️"
+        print(f"   Refinery 抽检: {r['refinery_rate']:.2%} {status} ({r['refinery_sample_count']} 帧)")
     if args.dry_run:
         print("   [dry-run] 未写报告、未发邮件、未并入")
     return 0

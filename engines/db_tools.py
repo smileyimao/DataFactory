@@ -17,20 +17,14 @@ def init_db(db_url: str) -> bool:
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS production_history (
-                batch_id TEXT PRIMARY KEY,
-                fingerprint TEXT,
+                fingerprint TEXT PRIMARY KEY,
+                batch_id TEXT,
                 pass_rate REAL,
                 status TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 sync_id VARCHAR(64) NULL
             )
         """)
-        # Add sync_id column if missing (SQLite only; PG CREATE TABLE already includes it)
-        if not db_connection.is_postgres(db_url):
-            try:
-                cur.execute("ALTER TABLE production_history ADD COLUMN sync_id VARCHAR(64) NULL")
-            except Exception:
-                pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS batch_metrics (
                 batch_id TEXT PRIMARY KEY,
@@ -141,11 +135,11 @@ def record_production(
         cur = conn.cursor()
         sql = db_connection.upsert_sql(
             "production_history",
-            "batch_id",
-            ["batch_id", "fingerprint", "pass_rate", "status", "created_at", "sync_id"],
+            "fingerprint",
+            ["fingerprint", "batch_id", "pass_rate", "status", "created_at", "sync_id"],
             db_url,
         )
-        cur.execute(sql, (batch_id, fingerprint, pass_rate, status, created_at, sync_id))
+        cur.execute(sql, (fingerprint, batch_id, pass_rate, status, created_at, sync_id))
         conn.commit()
         conn.close()
         return True

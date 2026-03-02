@@ -5,8 +5,8 @@
 #   bash scripts/start_mlflow_server.sh          # 前台运行（日志直接输出）
 #   bash scripts/start_mlflow_server.sh --daemon  # 后台运行，日志写 logs/mlflow_server.log
 #
-# 模型团队访问地址: http://<本机IP>:5000
-# 本机访问地址:     http://localhost:5000
+# 模型团队访问地址: http://<本机IP>:5001
+# 本机访问地址:     http://localhost:5001
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ cd "$BASE_DIR"
 source .venv/bin/activate 2>/dev/null || true
 
 HOST="0.0.0.0"
-PORT="5000"
+PORT="5001"
 # Use MLFLOW_BACKEND_URI env var if set, otherwise fall back to local SQLite
 BACKEND="${MLFLOW_BACKEND_URI:-sqlite:///${BASE_DIR}/db/mlflow.db}"
 ARTIFACTS="${BASE_DIR}/mlflow_artifacts"

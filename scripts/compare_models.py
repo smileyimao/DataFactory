@@ -128,7 +128,7 @@ def compare_models(
         nb = base_res["by_path"].get(p, {}).get("boxes", [])
         matched += _match_boxes(na, nb, iou_thresh)
 
-    # 一致率：2*matched / (n_new + n_base)，或按图算
+    # 模型间一致率：2*matched / (n_new + n_base)，衡量两模型检测框重叠程度
     n_new = sum(r["n"] for r in new_res["by_path"].values())
     n_base = sum(r["n"] for r in base_res["by_path"].values())
     denom = n_new + n_base
@@ -213,16 +213,16 @@ def main():
         except Exception as e:
             print(f"⚠️ MLflow 写入失败: {e}")
 
-    db_path = cfg.get("paths", {}).get("db_file", "")
-    if db_path and os.path.isfile(db_path):
+    db_url = paths.get("db_url", "")
+    if db_url:
         try:
-            from engines import db_tools
-            db_tools.init_db(db_path)
-            conn = __import__("sqlite3").connect(db_path)
+            from engines import db_connection
+            conn = db_connection.connect(db_url)
             cur = conn.cursor()
+            ph = db_connection.ph(db_url)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS model_comparison (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id SERIAL PRIMARY KEY,
                     new_model TEXT,
                     baseline_model TEXT,
                     data_dir TEXT,
@@ -234,7 +234,7 @@ def main():
                 )
             """)
             cur.execute(
-                "INSERT INTO model_comparison (new_model, baseline_model, data_dir, n_images, n_det_new, n_det_baseline, consistency_rate) VALUES (?,?,?,?,?,?,?)",
+                f"INSERT INTO model_comparison (new_model, baseline_model, data_dir, n_images, n_det_new, n_det_baseline, consistency_rate) VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph})",
                 (
                     metrics["new_model_path"],
                     metrics["baseline_model_path"],

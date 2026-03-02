@@ -94,7 +94,7 @@ def compare_one_image(
     pseudo_boxes: List[Tuple[int, float, float, float, float]],
     iou_thresh: float = 0.5,
 ) -> Tuple[int, int, int]:
-    """返回 (匹配数, 回传框数, 伪标签框数)。一致率可用 2*matched/(n_returned+n_pseudo)。"""
+    """返回 (匹配数, 回传框数, 伪标签框数)。伪标签一致率可用 2*matched/(n_returned+n_pseudo)。"""
     matched = _match_pairs(returned_boxes, pseudo_boxes, iou_thresh)
     return matched, len(returned_boxes), len(pseudo_boxes)
 
@@ -205,11 +205,14 @@ def run_comparison(
     archive_base: str,
     base_dir: str = "",
     iou_thresh: float = 0.5,
+    filename_filter=None,
 ) -> Tuple[float, List[Dict[str, Any]]]:
     """
-    对 import_dir 内每张图，找到对应伪标签，比较框一致率。
-    返回 (整体一致率, 每图差异明细 diff_report)。
-    一致率 = 2 * 总匹配数 / (总回传框数 + 总伪标签框数)，无框时该图算 1.0。
+    对 import_dir 内每张图，找到对应伪标签，计算伪标签一致率（与伪标签的差异程度）。
+    返回 (整体伪标签一致率, 每图差异明细 diff_report)。
+    伪标签一致率 = 2 * 总匹配数 / (总回传框数 + 总伪标签框数)，无框时该图算 1.0。
+    注意：该指标衡量与伪标签的差异，用于触发差异复核，不反映人工标注质量。
+    filename_filter: 若指定则只对集合内的文件名做对比（用于 refinery 抽检）。
     """
     total_matched = 0
     total_returned = 0
@@ -218,6 +221,8 @@ def run_comparison(
     for name in sorted(os.listdir(import_dir)):
         ext = os.path.splitext(name)[1].lower()
         if ext not in IMAGE_EXT:
+            continue
+        if filename_filter is not None and name not in filename_filter:
             continue
         base, _ = os.path.splitext(name)
         txt_name = base + ".txt"
@@ -266,15 +271,16 @@ def send_alert(
     threshold: float,
     diff_report: List[Dict[str, Any]],
 ) -> None:
-    """一致率低于门槛时发邮件（使用 email_setting）。"""
+    """伪标签一致率低于门槛时发邮件，提示人工标注与伪标签差异较大，需人工复核（使用 email_setting）。"""
     from . import notifier
     email_cfg = cfg.get("email_setting", {})
     if not email_cfg or not cfg.get("labeled_return", {}).get("alert_via_email", True):
         return
-    subject = f"【标注回传报警】一致率 {consistency_rate:.2%} 低于 {threshold:.0%} - {import_id}"
+    subject = f"【标注回传报警】伪标签一致率 {consistency_rate:.2%} 低于 {threshold:.0%} - {import_id}"
     body = (
         f"厂长您好，\n\n"
-        f"标注回传批次 {import_id} 与伪标签对比一致率为 {consistency_rate:.2%}，低于设定门槛 {threshold:.0%}。\n"
+        f"标注回传批次 {import_id} 与伪标签对比结果：伪标签一致率 {consistency_rate:.2%}，低于设定门槛 {threshold:.0%}。\n"
+        f"说明：该指标衡量人工标注与模型伪标签的差异程度，差异大可能是标注员修正了模型错误（正常），也可能是标注偏差，请人工判断。\n"
         f"请对差异部分再次复核。\n\n"
         f"差异明细（前 20 条）：\n"
     )
@@ -288,6 +294,54 @@ def send_alert(
         logger.info("已发送标注回传报警邮件")
     except Exception as e:
         logger.warning("发送报警邮件失败: %s", e)
+
+
+def send_refinery_alert(
+    cfg: dict,
+    import_id: str,
+    consistency_rate: float,
+    threshold: float,
+    diff_report: List[Dict[str, Any]],
+    sample_count: int,
+) -> None:
+    """Refinery 抽检一致率低时发邮件，给出 approved_split_confidence_threshold 调整建议。"""
+    from . import notifier
+    email_cfg = cfg.get("email_setting", {})
+    if not email_cfg or not cfg.get("labeled_return", {}).get("alert_via_email", True):
+        return
+    ps = cfg.get("production_setting", {})
+    current_thr = float(ps.get("approved_split_confidence_threshold", 0.60))
+    suggested = round(min(current_thr + 0.05, 0.95), 2)
+    top_pct = ps.get("refinery_top_pct", 30)
+
+    subject = f"【Refinery 抽检报警】伪标签一致率 {consistency_rate:.2%}（抽检 {sample_count} 帧）- {import_id}"
+    body = (
+        f"厂长您好，\n\n"
+        f"Refinery 抽检批次 {import_id} 结果：\n"
+        f"  抽检帧数：{sample_count}\n"
+        f"  伪标签一致率：{consistency_rate:.2%}（门槛 {threshold:.0%}）\n\n"
+        f"⚠️ 模型在高置信区间仍有较高错误率，当前 refinery 阈值可能过低。\n\n"
+        f"建议操作（二选一）：\n"
+        f"  1. 提高置信门槛：将 production_setting.approved_split_confidence_threshold\n"
+        f"     从当前 {current_thr:.2f} 提高到 {suggested:.2f}\n"
+        f"  2. 缩小 refinery 范围：将 production_setting.refinery_top_pct\n"
+        f"     从当前 {top_pct} 降低（减少进入 refinery 的帧比例）\n\n"
+        f"差异明细（前 20 条）：\n"
+    )
+    for row in diff_report[:20]:
+        body += (
+            f"  - {row.get('file', '')}: "
+            f"returned={row.get('returned', 0)} pseudo={row.get('pseudo', 0)} "
+            f"matched={row.get('matched', 0)} rate={row.get('rate', 0):.2%}\n"
+        )
+    if len(diff_report) > 20:
+        body += f"  ... 共 {len(diff_report)} 条\n"
+    body += "\n本邮件由 DataFactory 自动生成。"
+    try:
+        notifier.send_mail(email_cfg, subject, body)
+        logger.info("已发送 refinery 抽检报警邮件")
+    except Exception as e:
+        logger.warning("发送 refinery 抽检报警邮件失败: %s", e)
 
 
 def merge_to_training(
@@ -452,6 +506,29 @@ def run_full_pipeline(
     if not passed and not dry_run:
         send_alert(cfg, import_id, consistency_rate, threshold, diff_report)
 
+    # Refinery 抽检：对抽样帧单独计算 IoU，低于门槛时发专项报警
+    refinery_names = {
+        name for name, entry in manifest_map.items()
+        if entry.get("subdir") == "refinery"
+    }
+    refinery_rate = None
+    refinery_sample_count = 0
+    if refinery_names and not dry_run:
+        refinery_returned = {
+            f for f in os.listdir(import_dir)
+            if os.path.splitext(f)[1].lower() in IMAGE_EXT and f in refinery_names
+        }
+        if refinery_returned:
+            refinery_rate, refinery_diff = run_comparison(
+                import_dir, manifest_map, archive_base,
+                base_dir=base_dir, iou_thresh=0.5,
+                filename_filter=refinery_returned,
+            )
+            refinery_sample_count = len(refinery_returned)
+            print(f"   🔍 Refinery 抽检: {refinery_sample_count} 帧, 一致率 {refinery_rate:.2%}")
+            if refinery_rate < threshold:
+                send_refinery_alert(cfg, import_id, refinery_rate, threshold, refinery_diff, refinery_sample_count)
+
     merged_count = 0
     batch_labeled_count = 0
     if passed and not dry_run:
@@ -466,7 +543,7 @@ def run_full_pipeline(
         batch_ids = _collect_batch_ids_from_manifest(manifest_map, import_dir)
         if batch_ids and training_dir:
             from engines import db_tools
-            db_path = paths.get("db_file", "")
+            db_path = paths.get("db_url", "")
             if db_path:
                 db_tools.record_label_import(
                     db_path,
@@ -487,4 +564,6 @@ def run_full_pipeline(
         "merged_count": merged_count,
         "batch_labeled_count": batch_labeled_count,
         "dry_run": dry_run,
+        "refinery_rate": refinery_rate,
+        "refinery_sample_count": refinery_sample_count,
     }

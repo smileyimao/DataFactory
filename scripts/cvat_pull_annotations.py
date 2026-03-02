@@ -440,7 +440,7 @@ def main() -> int:
     print(f"  标注图片:    {r.get('annotated_images', 0)} 张")
     if r.get("missing_images", 0):
         print(f"  未匹配图片:  {r['missing_images']} 张（源图片不在 for_labeling/images/）")
-    print(f"  一致率:      {r.get('consistency_rate', 0):.2%}  (门槛 {r.get('threshold', 0):.0%})")
+    print(f"  伪标签一致率: {r.get('consistency_rate', 0):.2%}  (门槛 {r.get('threshold', 0):.0%})  ← 差异监控，非质量评分")
     print(f"  差异条数:    {r.get('diff_count', 0)}")
     print(f"  结果:        {'✅ 达标' if r.get('passed') else '⚠️  未达标，已触发报警邮件'}")
     if r.get("merged_count", 0) > 0:

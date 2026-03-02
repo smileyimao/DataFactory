@@ -5,16 +5,84 @@
 便于下游标注工具导入，避免重复标注已去重数据。
 同时将图片及同名 .txt 拷贝到 export_dir/images/，下游可直接拷走整个 for_labeling 目录。
 """
+import math
 import os
+import re
 import json
 import logging
 import shutil
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # 常见可标注媒体扩展
 MEDIA_EXT = {".mp4", ".mov", ".avi", ".mkv", ".jpg", ".jpeg", ".png", ".bmp"}
+
+# COCO 80类名（yolov8s.pt 默认）
+_COCO_NAMES = [
+    "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat",
+    "traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat",
+    "dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack",
+    "umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball",
+    "kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket",
+    "bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple",
+    "sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair",
+    "couch","potted plant","bed","dining table","toilet","tv","laptop","mouse",
+    "remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator",
+    "book","clock","vase","scissors","teddy bear","hair drier","toothbrush",
+]
+
+
+def _annotate_image(src_img: str, txt_path: str, dst_img: str) -> bool:
+    """将检测框和置信度画在图片上，保存到 dst_img。无检测数据则直接复制。"""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        shutil.copy2(src_img, dst_img)
+        return False
+
+    img = cv2.imread(src_img)
+    if img is None:
+        shutil.copy2(src_img, dst_img)
+        return False
+
+    if not os.path.isfile(txt_path):
+        cv2.imwrite(dst_img, img)
+        return True
+
+    h, w = img.shape[:2]
+    with open(txt_path, "r") as f:
+        lines = f.read().strip().splitlines()
+
+    for line in lines:
+        parts = line.strip().split()
+        if len(parts) < 5:
+            continue
+        cls_id = int(parts[0])
+        xc, yc, bw, bh = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+        conf = float(parts[5]) if len(parts) >= 6 else None
+
+        x1 = int((xc - bw / 2) * w)
+        y1 = int((yc - bh / 2) * h)
+        x2 = int((xc + bw / 2) * w)
+        y2 = int((yc + bh / 2) * h)
+
+        label = _COCO_NAMES[cls_id] if cls_id < len(_COCO_NAMES) else str(cls_id)
+        text = f"{label} {conf:.2f}" if conf is not None else label
+
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        font_scale = max(0.4, min(w, h) / 1000)
+        thickness = max(1, int(font_scale * 2))
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+        ty = max(y1 - 4, th + 4)
+        cv2.rectangle(img, (x1, ty - th - 4), (x1 + tw + 4, ty), (0, 255, 0), -1)
+        cv2.putText(img, text, (x1 + 2, ty - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+
+    cv2.imwrite(dst_img, img)
+    return True
 
 
 def list_batch_media(batch_dir: str, media_subdirs: Optional[tuple] = None, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -108,13 +176,12 @@ def export_manifest_for_labeling(
         base, ext = os.path.splitext(filename)
         dest_name = f"{batch_id}_{filename}"
         dest_path = os.path.join(images_dir, dest_name)
+        txt_src = os.path.join(os.path.dirname(src_path), base + ".txt")
         try:
             shutil.copy2(src_path, dest_path)
             copied += 1
         except OSError as e:
             logger.warning("拷贝媒体失败 %s -> %s: %s", src_path, dest_path, e)
-        # 同名 .txt（YOLO 伪标签）
-        txt_src = os.path.join(os.path.dirname(src_path), base + ".txt")
         if os.path.isfile(txt_src):
             txt_dest = os.path.join(images_dir, f"{batch_id}_{base}.txt")
             try:
@@ -146,6 +213,41 @@ def run_export_from_config(
     )
 
 
+_FRAME_RE = re.compile(r"^(.+)_f\d{5}\.")
+
+
+def _video_key(filename: str) -> str:
+    """从帧文件名提取视频键（strip _fNNNNN 后缀），图片模式返回原名。"""
+    m = _FRAME_RE.match(filename)
+    return m.group(1) if m else filename
+
+
+def _stratified_sample_by_video(items: list, rate: float) -> list:
+    """
+    按视频分组后各取 ceil(n * rate) 帧（至少 1 帧）。
+    单帧组（图片模式）整批按 rate 全局抽，避免每张图都被抽到 100%。
+    """
+    groups = defaultdict(list)
+    for item in items:
+        groups[_video_key(item["filename"])].append(item)
+
+    multi = [g for g in groups.values() if len(g) > 1]
+    single = [g[0] for g in groups.values() if len(g) == 1]
+
+    result = []
+    for group in multi:
+        k = max(1, math.ceil(len(group) * rate))
+        step = len(group) / k
+        result.extend(group[int(i * step)] for i in range(k))
+
+    if single:
+        k = max(1, math.ceil(len(single) * rate))
+        step = len(single) / k
+        result.extend(single[int(i * step)] for i in range(k))
+
+    return result
+
+
 def _collect_media_from_dir(dir_path: str) -> List[Dict[str, Any]]:
     """从目录递归收集媒体文件（含 Normal/Warning 子目录或平铺）。"""
     out = []
@@ -165,21 +267,21 @@ def _collect_media_from_dir(dir_path: str) -> List[Dict[str, Any]]:
 
 def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> Optional[str]:
     """
-    待标池自动更新：本批次 inspection 的媒体文件追加到 for_labeling，并合并 manifest。
+    待标池自动更新：inspection 全量 + refinery 按视频分层抽样，追加到 for_labeling manifest。
     若配置 labeling_pool.auto_update_after_batch 为 false 则跳过。
     返回 manifest 路径或 None。
     """
     pool_cfg = cfg.get("labeling_pool") or {}
     if not pool_cfg.get("auto_update_after_batch", True):
         return None
+    upload_inspection = pool_cfg.get("upload_inspection", True)
+    refinery_sample_rate = float(pool_cfg.get("refinery_sample_rate", 0.0))
+    fuel_dir = path_info.get("fuel_dir", "")
     paths = cfg.get("paths", {})
     export_dir = paths.get("labeling_export")
     human_dir = path_info.get("human_dir", "")
     batch_id = path_info.get("batch_id", "")
-    if not export_dir or not human_dir or not batch_id:
-        return None
-    items = _collect_media_from_dir(human_dir)
-    if not items:
+    if not export_dir or not batch_id:
         return None
     images_dir = os.path.join(export_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
@@ -193,38 +295,75 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
             logger.warning("读取现有 manifest 失败，将覆盖: %s", e)
     seen = {f"{x.get('batch_id', '')}_{x.get('filename', '')}" for x in existing}
     added = 0
-    for item in items:
-        src_path = item["path"]
-        filename = item["filename"]
-        base, ext = os.path.splitext(filename)
-        dest_name = f"{batch_id}_{filename}"
-        if dest_name in seen:
-            continue
-        seen.add(dest_name)
-        dest_path = os.path.join(images_dir, dest_name)
-        try:
-            shutil.copy2(src_path, dest_path)
-            added += 1
-        except OSError as e:
-            logger.warning("拷贝媒体失败 %s -> %s: %s", src_path, dest_path, e)
-        txt_src = os.path.join(os.path.dirname(src_path), base + ".txt")
-        if os.path.isfile(txt_src):
-            txt_dest = os.path.join(images_dir, f"{batch_id}_{base}.txt")
+    if upload_inspection and human_dir:
+        items = _collect_media_from_dir(human_dir)
+        for item in items:
+            src_path = item["path"]
+            filename = item["filename"]
+            base, _ = os.path.splitext(filename)
+            dest_name = f"{batch_id}_{filename}"
+            if dest_name in seen:
+                continue
+            seen.add(dest_name)
+            dest_path = os.path.join(images_dir, dest_name)
+            txt_src = os.path.join(os.path.dirname(src_path), base + ".txt")
             try:
-                shutil.copy2(txt_src, txt_dest)
+                shutil.copy2(src_path, dest_path)
+                added += 1
             except OSError as e:
-                logger.warning("拷贝 txt 失败 %s -> %s: %s", txt_src, txt_dest, e)
-        subdir = cfg.get("paths", {}).get("batch_subdirs", {}).get("inspection", "inspection")
-        existing.append({
-            "path": dest_path,
-            "relative_path": f"images/{dest_name}",
-            "filename": filename,
-            "subdir": subdir,
-            "batch_id": batch_id,
-        })
-    if added > 0:
+                logger.warning("拷贝媒体失败 %s -> %s: %s", src_path, dest_path, e)
+            if os.path.isfile(txt_src):
+                txt_dest = os.path.join(images_dir, f"{batch_id}_{base}.txt")
+                try:
+                    shutil.copy2(txt_src, txt_dest)
+                except OSError as e:
+                    logger.warning("拷贝 txt 失败 %s -> %s: %s", txt_src, txt_dest, e)
+            subdir = paths.get("batch_subdirs", {}).get("inspection", "inspection")
+            existing.append({
+                "path": dest_path,
+                "relative_path": f"images/{dest_name}",
+                "filename": filename,
+                "subdir": subdir,
+                "batch_id": batch_id,
+            })
+    refinery_added = 0
+    if refinery_sample_rate > 0 and fuel_dir:
+        refinery_items = _collect_media_from_dir(fuel_dir)
+        sampled = _stratified_sample_by_video(refinery_items, refinery_sample_rate)
+        r_subdir = paths.get("batch_subdirs", {}).get("refinery", "refinery")
+        for item in sampled:
+            src_path = item["path"]
+            filename = item["filename"]
+            base, _ = os.path.splitext(filename)
+            dest_name = f"{batch_id}_{filename}"
+            if dest_name in seen:
+                continue
+            seen.add(dest_name)
+            dest_path = os.path.join(images_dir, dest_name)
+            txt_src = os.path.join(os.path.dirname(src_path), base + ".txt")
+            try:
+                shutil.copy2(src_path, dest_path)
+                refinery_added += 1
+            except OSError as e:
+                logger.warning("拷贝 refinery 抽样失败 %s: %s", src_path, e)
+            if os.path.isfile(txt_src):
+                try:
+                    shutil.copy2(txt_src, os.path.join(images_dir, f"{batch_id}_{base}.txt"))
+                except OSError as e:
+                    logger.warning("拷贝 refinery txt 失败: %s", e)
+            existing.append({
+                "path": dest_path,
+                "relative_path": f"images/{dest_name}",
+                "filename": filename,
+                "subdir": r_subdir,
+                "batch_id": batch_id,
+            })
+    if added > 0 or refinery_added > 0:
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
-        logger.info("待标池自动更新: 本批 inspection 追加 %d 条 -> %s", added, manifest_path)
+        if added > 0:
+            logger.info("待标池: inspection 追加 %d 条 -> %s", added, manifest_path)
+        if refinery_added > 0:
+            logger.info("待标池: refinery 抽样 %d 条 (%.0f%%) -> %s", refinery_added, refinery_sample_rate * 100, manifest_path)
         return manifest_path
     return None

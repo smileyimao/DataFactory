@@ -27,7 +27,7 @@ def run_qc(
     """
     paths = cfg.get("paths", {})
     warehouse = paths.get("data_warehouse", "")
-    db_path = paths.get("db_file", "")
+    db_path = paths.get("db_url", "")
     qc_cfg = config_loader.get_quality_thresholds(cfg)
     qc_sample_seconds = qc_cfg.get("qc_sample_seconds", 10)  # 每视频抽检秒数，用于质量判定
     gate = float(qc_cfg.get("pass_rate_gate", 80.0))

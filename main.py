@@ -69,8 +69,8 @@ def _print_pipeline_report(stats: dict, input_name: str, cvat_url: str = "") -> 
     print(f"输入视频：{input_name}")
     print(f"总关键帧：{total}")
     print(f"自动标注：{with_pseudo}（{pct}%）")
-    print(f"需人工确认：{refinery}（{refinery_pct}%）")
-    print(f"困难样本：{inspection}（{inspection_pct}%）")
+    print(f"refinery（高置信）：{refinery}（{refinery_pct}%）   # 伪标签可直接用")
+    print(f"inspection（待人工）：{inspection}（{inspection_pct}%） # 需人工标注或复核")
     print("─" * 40)
     print(f"人工工作量节省：约{pct}%")
     if cvat_url:
@@ -177,6 +177,7 @@ def main():
     parser.add_argument("--test", action="store_true", help="测试模式：临时环境跑全链路，邮件照发，不污染真实数据")
     parser.add_argument("--input", type=str, default="", help="指定单个视频路径，仅处理此文件")
     parser.add_argument("--auto-cvat", action="store_true", help="pipeline 结束后自动创建 CVAT Task 并上传图片与伪标签")
+    parser.add_argument("--no-cvat", action="store_true", help="强制跳过标注平台上传（覆盖 CVAT_LOCAL_URL 自动触发）")
     args = parser.parse_args()
 
     if args.test:
@@ -197,12 +198,14 @@ def main():
         if not startup.run_golden_run(cfg):
             sys.exit(1)
 
-    db_url = cfg.get("paths", {}).get("db_url") or cfg.get("paths", {}).get("db_file")
-    if db_url:
-        from engines import db_tools
-        if not db_tools.init_db(db_url):
-            print("❌ 数据库初始化失败，请检查 db_file 路径与权限。")
-            sys.exit(1)
+    db_url = cfg.get("paths", {}).get("db_url")
+    if not db_url:
+        print("❌ DATABASE_URL 未设置，请在 .env 中配置 DATABASE_URL=postgresql://...")
+        sys.exit(1)
+    from engines import db_tools
+    if not db_tools.init_db(db_url):
+        print("❌ 数据库初始化失败，请检查 DATABASE_URL 配置与 PostgreSQL 是否运行。")
+        sys.exit(1)
 
     video_paths = None
     input_name = "storage/raw"
@@ -230,37 +233,11 @@ def main():
         stats = _collect_batch_stats(archive, batch_prefix)
 
         cvat_url = ""
-        if args.auto_cvat and stats.get("total", 0) > 0:
-            from engines import labeling_export
-            for_labeling = cfg.get("paths", {}).get("labeling_export", "")
-            if not for_labeling:
-                for_labeling = os.path.join(BASE_DIR, "storage", "for_labeling")
-            if not os.path.isabs(for_labeling):
-                for_labeling = os.path.join(BASE_DIR, for_labeling)
-            # 导出 refinery + inspection 到 for_labeling
-            labeling_export.run_export_from_config(cfg, max_batches=1, inspection_only=False, refinery_only=False)
-            # 打包 CVAT zip（通过子进程调用现有脚本）
-            z1 = os.path.join(for_labeling, "for_cvat.zip")
-            z2 = os.path.join(for_labeling, "for_cvat_native.zip")
-            try:
-                import subprocess
-                r1 = subprocess.run(
-                    [sys.executable, os.path.join(BASE_DIR, "scripts", "export_for_cvat.py"), "-o", z1],
-                    cwd=BASE_DIR, capture_output=True, text=True,
-                )
-                if r1.returncode != 0:
-                    raise RuntimeError(f"export_for_cvat 失败: {r1.stderr or r1.stdout}")
-                r2 = subprocess.run(
-                    [sys.executable, os.path.join(BASE_DIR, "scripts", "export_for_cvat_native.py"), "--vehicle", "-o", z2],
-                    cwd=BASE_DIR, capture_output=True, text=True,
-                )
-                if r2.returncode != 0:
-                    raise RuntimeError(f"export_for_cvat_native 失败: {r2.stderr or r2.stdout}")
-                sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
-                from cvat_api import auto_cvat_upload
-                cvat_url = auto_cvat_upload(for_labeling, z1, z2, task_name=stats.get("batch_id", "DataFactory"))
-            except Exception as e:
-                print(f"⚠️ CVAT 自动上传失败: {e}")
+        cvat_configured = bool(os.environ.get("CVAT_LOCAL_URL"))
+        should_upload = (args.auto_cvat or cvat_configured) and not args.no_cvat
+        if should_upload and stats.get("total", 0) > 0:
+            from engines import annotation_upload
+            cvat_url = annotation_upload.upload(cfg, task_name=stats.get("batch_id", "DataFactory"))
 
         _print_pipeline_report(stats, input_name, cvat_url)
         if not args.auto_cvat:

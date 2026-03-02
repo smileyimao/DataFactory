@@ -70,17 +70,27 @@ def _split_approved_by_vision_conf(
     if not video_paths or not vision_detector.is_enabled(cfg):
         return list(items), [], empty_dets  # vision 未开启：全部 refinery
 
+    video_tier_map: Dict[str, str] = {}
+
     if precomputed_detections:
         detections_by_video = precomputed_detections
+        # precomputed 来自 QC 阶段采样帧少，分级不准，跳过视频级分级
     else:
+        sample_sec = float((cfg.get("vision") or {}).get("sample_seconds", 10))
         result = vision_detector.run_vision_scan(
-            cfg, video_paths, return_detections=True, sample_seconds_override=1.0,
+            cfg, video_paths, return_detections=True, sample_seconds_override=sample_sec,
         )
         detections_by_video = {}
         for entry in result:
             name = entry.get("name", "")
             dets_map = entry.get("detections_by_frame") or {}
             detections_by_video[name] = dets_map
+
+        # 视频级三档分流（仅非 precomputed 路径）
+        total_frames_by_video = {e.get("name", ""): e.get("n_frames", 0) for e in result}
+        video_tier_map = production_tools.compute_video_tiers(
+            detections_by_video, total_frames_by_video, cfg
+        )
 
     name_to_max_conf: Dict[str, float] = {}
     for name, dets_map in detections_by_video.items():
@@ -97,10 +107,18 @@ def _split_approved_by_vision_conf(
     for item in items:
         bname = os.path.basename(item.get("archive_path", ""))
         max_conf = name_to_max_conf.get(bname, 0.0)
-        if max_conf >= threshold:
+        tier = video_tier_map.get(bname, "standard")
+        if max_conf >= threshold and tier != "low":
             to_fuel.append(item)
         else:
             to_human.append(item)
+
+    if video_tier_map:
+        high_n = sum(1 for t in video_tier_map.values() if t == "high")
+        std_n  = sum(1 for t in video_tier_map.values() if t == "standard")
+        low_n  = sum(1 for t in video_tier_map.values() if t == "low")
+        print(f"   📊 视频分级: 高质 {high_n}  标准 {std_n}  低质 {low_n}（低质 → inspection）")
+
     return to_fuel, to_human, detections_by_video
 
 
@@ -149,11 +167,12 @@ def archive_approved_items(
 def _get_detections_by_video(
     cfg: dict, video_paths: List[str],
 ) -> Dict[str, Dict[int, List[Dict[str, Any]]]]:
-    """对给定视频按 1 秒间隔跑视觉检测，返回 {basename: {frame_idx: [bbox]}} 供写伪标签。"""
+    """对给定视频按 vision.sample_seconds 间隔跑视觉检测，返回 {basename: {frame_idx: [bbox]}} 供写伪标签。"""
     if not video_paths or not vision_detector.is_enabled(cfg):
         return {}
+    sample_sec = float((cfg.get("vision") or {}).get("sample_seconds", 10))
     result = vision_detector.run_vision_scan(
-        cfg, video_paths, return_detections=True, sample_seconds_override=1.0,
+        cfg, video_paths, return_detections=True, sample_seconds_override=sample_sec,
     )
     out = {}
     for entry in result:
@@ -172,10 +191,13 @@ def _run_produce_chunk(
     detections_by_video: Optional[Dict[str, Dict[int, List[Dict[str, Any]]]]] = None,
     use_flat_output: bool = False,
     skip_html_report: bool = False,
+    inspection_dir: str = "",
 ) -> None:
-    """对一批 item 执行量产并写入 production_history；可选 detections_by_video 写伪标签。use_flat_output=True 时平铺（无 Normal/Warning）；skip_html_report=True 时燃料目录只保留 manifest+图+txt。"""
+    """对一批 item 执行量产并写入 production_history。
+    inspection_dir 非空时启用帧级分流：高置信帧 → target_dir(refinery)，低置信/无检测帧 → inspection_dir。
+    """
     paths = cfg.get("paths", {})
-    db_path = paths.get("db_file", "")
+    db_path = paths.get("db_url", "")
     new_video_paths = [x["archive_path"] for x in items if os.path.isfile(x.get("archive_path", ""))]
     if not new_video_paths:
         return
@@ -183,6 +205,7 @@ def _run_produce_chunk(
         new_video_paths, target_dir, batch_id, cfg, limit_seconds=None, detections_by_video=detections_by_video,
         use_flat_output=use_flat_output,
         skip_html_report=skip_html_report,
+        inspection_dir=inspection_dir,
     )
     print(f"🏆 {label}：共加工 {count} 张样图 -> {os.path.abspath(target_dir)}")
     ts = time_utils.now_toronto(cfg).strftime("%Y-%m-%d %H:%M:%S")
@@ -202,47 +225,31 @@ def archive_produced(
     tiered = path_info.get("confidence_tiered_output", True)
 
     if tiered:
-        os.makedirs(path_info.get("fuel_dir", ""), exist_ok=True)
-        os.makedirs(path_info.get("human_dir", ""), exist_ok=True)
+        fuel_dir = path_info.get("fuel_dir", "")
+        human_dir = path_info.get("human_dir", "")
+        os.makedirs(fuel_dir, exist_ok=True)
+        os.makedirs(human_dir, exist_ok=True)
         qc_detections = path_info.get("qc_detections_by_video") or {}
-        if qc_detections:
-            print("   ♻️ 复用 QC 阶段 YOLO 结果，跳过二次推理")
-        # qualified 按 YOLO 置信度分流：高置信 -> refinery，低置信/无检测 -> inspection
-        fuel_from_qualified, human_from_qualified, detections = _split_approved_by_vision_conf(
-            cfg, to_fuel, precomputed_detections=qc_detections if qc_detections else None
-        )
-        fuel_items = fuel_from_qualified
-        human_items = human_from_qualified + to_human
-        if fuel_from_qualified or human_from_qualified:
-            print(f"   📊 qualified 按 YOLO 置信度分流: {len(fuel_from_qualified)} → refinery, {len(human_from_qualified)} → inspection")
-        if fuel_items:
-            print(f"\n🏭 [阶段 2] refinery（高置信燃料，共 {len(fuel_items)} 个文件）...")
-            fuel_paths = [x["archive_path"] for x in fuel_items if os.path.isfile(x.get("archive_path", ""))]
-            fuel_detections = detections if detections else (qc_detections if qc_detections else _get_detections_by_video(cfg, fuel_paths))
-            _run_produce_chunk(
-                cfg, fuel_items,
-                path_info["fuel_dir"], batch_id,
-                "refinery",
-                detections_by_video=fuel_detections,
-                use_flat_output=True,
-                skip_html_report=True,
-            )
-        if human_items:
-            print(f"\n🏭 [阶段 2] inspection（待人工，共 {len(human_items)} 个文件）...")
-            human_paths = [x["archive_path"] for x in human_items if os.path.isfile(x.get("archive_path", ""))]
-            human_detections = detections if detections else (qc_detections if qc_detections else _get_detections_by_video(cfg, human_paths))
-            human_flat = cfg.get("production_setting", {}).get("human_review_flat", False)
-            _run_produce_chunk(
-                cfg, human_items,
-                path_info["human_dir"], batch_id,
-                "inspection",
-                detections_by_video=human_detections,
-                use_flat_output=human_flat,
-            )
-        if not fuel_items and not human_items:
+        all_items = to_fuel + to_human
+        if not all_items:
             print("🛑 无物料进入量产，本批次结束。")
         else:
-            print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")
+            if qc_detections:
+                print("   ♻️ 复用 QC 阶段 YOLO 结果，跳过二次推理")
+                detections = qc_detections
+            else:
+                all_paths = [x["archive_path"] for x in all_items if os.path.isfile(x.get("archive_path", ""))]
+                detections = _get_detections_by_video(cfg, all_paths)
+            print(f"\n🏭 [阶段 2] 帧级分流（共 {len(all_items)} 个文件）→ refinery / inspection ...")
+            _run_produce_chunk(
+                cfg, all_items,
+                fuel_dir, batch_id,
+                "refinery+inspection",
+                detections_by_video=detections,
+                use_flat_output=True,
+                skip_html_report=True,
+                inspection_dir=human_dir,
+            )
         return
 
     # 兼容：不按置信分层时，合并写 2_Mass_Production

@@ -145,7 +145,7 @@ def upload_images_from_zip(task_id: int, zip_path: str) -> bool:
 def upload_annotations(task_id: int, xml_path: str, format_name: str = "CVAT 1.1") -> bool:
     """
     上传标注。xml_path 为 for_cvat_native.zip（含 annotations.xml）。
-    返回是否成功。
+    轮询等待 CVAT 异步处理完成。返回是否成功。
     """
     if not requests or not os.path.isfile(xml_path):
         return False
@@ -159,8 +159,35 @@ def upload_annotations(task_id: int, xml_path: str, format_name: str = "CVAT 1.1
             files={"annotation_file": (os.path.basename(xml_path), f, "application/zip")},
             timeout=300,
         )
+    if r.status_code not in (200, 201, 202):
+        sess.close()
+        return False
+
+    # 轮询异步处理结果（CVAT v2 返回 rq_id）
+    try:
+        rq_id = r.json().get("rq_id", "")
+    except Exception:
+        rq_id = ""
+    if rq_id:
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(rq_id, safe="")
+            for _ in range(60):
+                time.sleep(2)
+                r2 = sess.get(f"{CVAT_URL}/api/requests/{encoded}", timeout=10)
+                if r2.status_code == 200:
+                    status = r2.json().get("status", "")
+                    if status == "finished":
+                        sess.close()
+                        return True
+                    if status == "failed":
+                        sess.close()
+                        return False
+        except Exception:
+            pass
+
     sess.close()
-    return r.status_code in (200, 201, 202)
+    return True
 
 
 def get_task_url(task_id: int) -> str:
@@ -179,9 +206,16 @@ def auto_cvat_upload(
     全自动：创建 Project → Task → 上传图片 → 上传标注。
     返回 Task URL，失败返回 None。
     """
+    conf_attr = {
+        "name": "confidence",
+        "mutable": False,
+        "input_type": "number",
+        "default_value": "0",
+        "values": ["0", "1"],
+    }
     labels = [
-        {"name": n, "type": "rectangle"}
-        for n in ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck"]
+        {"name": n, "type": "rectangle", "attributes": [conf_attr]}
+        for n in ["car", "bus", "truck"]
     ]
     pid = create_project(project_name, labels)
     tid = create_task(pid, task_name)

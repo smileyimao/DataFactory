@@ -122,7 +122,7 @@ def export_cvat_native(for_labeling_dir: str, output_zip: str, class_names: list
         txt_src = os.path.join(images_dir, base + ".txt")
         boxes = []
         for cid, cx, cy, bw, bh, conf in _parse_yolo_label(txt_src):
-            if cid >= len(class_names):
+            if cid >= len(class_names) or not class_names[cid]:
                 continue
             xtl = (cx - bw / 2) * w
             ytl = (cy - bh / 2) * h
@@ -135,7 +135,7 @@ def export_cvat_native(for_labeling_dir: str, output_zip: str, class_names: list
             box = ET.SubElement(
                 img_el, "box",
                 label=label,
-                source="manual",
+                source="auto",
                 occluded="0",
                 xtl=f"{xtl:.2f}",
                 ytl=f"{ytl:.2f}",

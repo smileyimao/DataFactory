@@ -23,7 +23,7 @@ def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any]
     加载配置并解析常用路径。供 scripts 统一使用。
     返回 (cfg, paths)，paths 含 for_labeling、db_url 等绝对路径。
 
-    db_url priority: DATABASE_URL env var > cfg paths.db_file (SQLite fallback).
+    db_url priority: DATABASE_URL env var (required for production).
     """
     if base_dir is None:
         base_dir = get_base_dir()
@@ -35,8 +35,8 @@ def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any]
         for_labeling = os.path.join(base_dir, "storage", "for_labeling")
     elif not os.path.isabs(for_labeling):
         for_labeling = os.path.join(base_dir, for_labeling)
-    # Resolve db_url: DATABASE_URL env var wins, else fall back to SQLite file path
-    db_url = os.environ.get("DATABASE_URL", "").strip() or p.get("db_file", "")
+    # Resolve db_url: DATABASE_URL env var
+    db_url = os.environ.get("DATABASE_URL", "").strip()
     # Also inject into cfg["paths"] so callers that use cfg directly get db_url too
     cfg["paths"]["db_url"] = db_url
     return cfg, {"for_labeling": for_labeling, "db_url": db_url}
@@ -136,8 +136,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     mf.setdefault("enabled", False)
     mf.setdefault("experiment_name", "datafactory")
     if mf.get("tracking_uri") is None:
-        # 默认使用 db/mlflow.db，与 factory_admin.db 同目录，便于备份与部署
-        mf["tracking_uri"] = "sqlite:///" + os.path.join(base, "db", "mlflow.db").replace("\\", "/")
+        mf["tracking_uri"] = os.environ.get("MLFLOW_BACKEND_URI", "")
     data.setdefault("production_setting", {})
     data["production_setting"].setdefault("human_review_flat", True)
     data["production_setting"].setdefault("approved_split_confidence_threshold", 0.6)
@@ -155,10 +154,8 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     ec = data.setdefault("email_setting", {})
     ec.setdefault("max_retries", 3)
     ec.setdefault("retry_delay_seconds", 5)
-    # Inject db_url: DATABASE_URL env var wins over sqlite file path
-    data["paths"]["db_url"] = (
-        os.environ.get("DATABASE_URL", "").strip() or data["paths"].get("db_file", "")
-    )
+    # Inject db_url from DATABASE_URL env var
+    data["paths"]["db_url"] = os.environ.get("DATABASE_URL", "").strip()
     return data
 
 
@@ -232,9 +229,6 @@ def init_storage_from_config(cfg: Dict[str, Any]) -> None:
         p = paths.get(key)
         if p and isinstance(p, str):
             os.makedirs(p, exist_ok=True)
-    db_path = paths.get("db_file")
-    if db_path:
-        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
 
 def _default_config(base_dir: str) -> Dict[str, Any]:
@@ -255,11 +249,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "pending_review": os.path.join(base_dir, "storage", "pending_review"),
             "quarantine": os.path.join(base_dir, "storage", "quarantine"),
             "logs": os.path.join(base_dir, "logs"),
-            "db_file": os.path.join(base_dir, "db", "factory_admin.db"),
-            "db_url": (
-                os.environ.get("DATABASE_URL", "").strip()
-                or os.path.join(base_dir, "db", "factory_admin.db")
-            ),
+            "db_url": os.environ.get("DATABASE_URL", "").strip(),
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
             "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"},
@@ -320,7 +310,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
         "mlflow": {
             "enabled": False,
             "experiment_name": "datafactory",
-            "tracking_uri": "sqlite:///" + os.path.join(base_dir, "db", "mlflow.db").replace("\\", "/"),
+            "tracking_uri": os.environ.get("MLFLOW_BACKEND_URI", ""),
         },
     }
 
@@ -332,7 +322,7 @@ def validate_config(cfg: Dict[str, Any]) -> List[str]:
     """
     errs = []
     paths = cfg.get("paths", {})
-    required = ["raw_video", "data_warehouse", "db_file", "rejected_material", "redundant_archives"]
+    required = ["raw_video", "data_warehouse", "db_url", "rejected_material", "redundant_archives"]
     for k in required:
         if not paths.get(k):
             errs.append(f"paths.{k} 未配置")

@@ -4,8 +4,8 @@
 清理 storage / db，便于测试/重置。默认仅 dry-run。
 用法:
   python scripts/reset_factory.py   # dry-run（默认 --target for-test）
-  python scripts/reset_factory.py --execute --target db --confirm-dangerous  # 清空 MD5 历史（factory_admin.db），下次跑同批视频不再判重复
-  python scripts/reset_factory.py --execute --target for-test --confirm-dangerous  # 测试用：清空 archive + redundant + rejected + reports + db，便于反复用同一批视频测试
+  python scripts/reset_factory.py --execute --target db --confirm-dangerous  # 清空 DB 历史记录（PostgreSQL 清表 / SQLite 删文件）
+  python scripts/reset_factory.py --execute --target for-test --confirm-dangerous  # 测试用：清空 archive + redundant + rejected + reports + for_labeling + pending_review + db
 """
 import argparse
 import os
@@ -59,6 +59,42 @@ def clear_dir(dir_path: str, dry_run: bool) -> int:
     return count
 
 
+def _clear_db(dry_run: bool) -> int:
+    """清空 DB 历史记录。PostgreSQL 清表，SQLite 删文件。返回 0 成功，1 失败。"""
+    sys.path.insert(0, BASE_DIR)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(BASE_DIR, ".env"))
+    except ImportError:
+        pass
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    tables = ["batch_lineage", "label_import", "model_train", "batch_metrics", "production_history"]
+
+    if db_url.startswith("postgresql") or db_url.startswith("postgres"):
+        if dry_run:
+            print(f"[DRY-RUN] Would DELETE FROM {', '.join(tables)} in PostgreSQL.")
+            return 0
+        try:
+            import psycopg2
+            conn = psycopg2.connect(db_url)
+            cur = conn.cursor()
+            for t in tables:
+                cur.execute(f"DELETE FROM {t}")
+                print(f"  Cleared table: {t} ({cur.rowcount} rows)")
+            conn.commit()
+            conn.close()
+            print("PostgreSQL DB cleared.")
+        except Exception as e:
+            print(f"Failed to clear PostgreSQL: {e}", file=sys.stderr)
+            return 1
+    else:
+        print("❌ DATABASE_URL 未设置或不是 PostgreSQL URL，无法清空数据库。", file=sys.stderr)
+        print("   请在 .env 中设置 DATABASE_URL=postgresql://... 后重试。", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Reset factory: clear db or storage (for-test). Requires --confirm-dangerous when --execute."
@@ -92,6 +128,8 @@ def main():
             ("rejected", os.path.join(storage, "rejected")),
             ("reports", os.path.join(storage, "reports")),
             ("quarantine", os.path.join(storage, "quarantine")),
+            ("for_labeling/images", os.path.join(storage, "for_labeling", "images")),
+            ("pending_review", os.path.join(storage, "pending_review")),
         ]
         for name, dir_path in targets:
             if os.path.isdir(dir_path):
@@ -104,52 +142,33 @@ def main():
             else:
                 if not args.execute:
                     print(f"[DRY-RUN] Would clear 0 item(s) under storage/{name} (dir missing).")
+        # for_labeling 根目录下的 zip 和 manifest
+        for_labeling = os.path.join(storage, "for_labeling")
+        for fname in ["for_cvat.zip", "for_cvat_native.zip", "manifest_for_labeling.json"]:
+            fpath = os.path.join(for_labeling, fname)
+            if os.path.isfile(fpath):
+                if args.execute:
+                    os.remove(fpath)
+                    print(f"Removed: storage/for_labeling/{fname}")
+                else:
+                    print(f"[DRY-RUN] Would remove: storage/for_labeling/{fname}")
         # db
-        db_dir = os.path.join(BASE_DIR, "db")
-        db_file = os.path.join(db_dir, "factory_admin.db")
-        if os.path.isfile(db_file):
-            if args.execute:
-                try:
-                    os.remove(db_file)
-                    print("Removed: db/factory_admin.db (MD5 history cleared).")
-                except OSError as e:
-                    print(f"Failed to remove {db_file}: {e}", file=sys.stderr)
-                    return 1
-            else:
-                print("[DRY-RUN] Would remove: db/factory_admin.db")
+        if args.execute:
+            _clear_db(dry_run=False)
         else:
-            if not args.execute:
-                print("[DRY-RUN] db/factory_admin.db does not exist.")
-        if not args.execute:
+            print("[DRY-RUN] Would clear DB tables (production_history, batch_metrics, batch_lineage, label_import, model_train).")
             print("[DRY-RUN] Use --execute --confirm-dangerous to actually clear.")
         return 0
 
-    # 目标 db：删除 db/factory_admin.db（MD5/指纹历史），下次 main 会重建空表
+    # 目标 db：清空历史记录（PostgreSQL 清表 / SQLite 删文件）
     if args.target == "db":
-        db_dir = os.path.join(BASE_DIR, "db")
-        db_file = os.path.join(db_dir, "factory_admin.db")
         if args.target in DANGEROUS_TARGETS and not args.confirm_dangerous:
             if args.execute:
-                print(
-                    "Refusing to clear db (MD5 history) without --confirm-dangerous.",
-                    file=sys.stderr,
-                )
+                print("Refusing to clear db without --confirm-dangerous.", file=sys.stderr)
                 print("Example: python scripts/reset_factory.py --execute --target db --confirm-dangerous", file=sys.stderr)
                 return 1
             print("[DRY-RUN] Target db is dangerous; use --confirm-dangerous with --execute to actually clear.", file=sys.stderr)
-        if not os.path.isfile(db_file):
-            print(f"DB file does not exist: {db_file}")
-            return 0
-        if dry_run:
-            print(f"[DRY-RUN] Would remove: {db_file}")
-            return 0
-        try:
-            os.remove(db_file)
-            print(f"Removed: {db_file}")
-        except OSError as e:
-            print(f"Failed to remove {db_file}: {e}", file=sys.stderr)
-            return 1
-        return 0
+        return _clear_db(dry_run=dry_run)
 
     # 仅支持 db / for-test，不会走到这里
     print(f"Unknown target: {args.target}", file=sys.stderr)

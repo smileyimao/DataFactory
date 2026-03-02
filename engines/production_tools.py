@@ -14,6 +14,58 @@ from . import frame_io
 IMAGE_EXT = (".jpg", ".jpeg", ".png")
 
 
+def compute_video_tiers(
+    detections_by_video: dict,
+    total_frames_by_video: dict,
+    cfg: dict,
+) -> dict:
+    """
+    按视频整体质量分三档：
+      high     = hit_rate >= high_detection_rate AND mean_conf >= high_conf
+      low      = hit_rate < low_detection_rate OR mean_conf < low_conf
+      standard = 其余
+    若 total_frames_by_video 为空，退回仅用 mean_conf（无 hit_rate 时不判 hit_rate 条件）。
+    """
+    prod_cfg = cfg.get("production_setting", {})
+    high_dr   = float(prod_cfg.get("video_tier_high_detection_rate", 0.60))
+    high_conf = float(prod_cfg.get("video_tier_high_conf", 0.70))
+    low_dr    = float(prod_cfg.get("video_tier_low_detection_rate", 0.30))
+    low_conf  = float(prod_cfg.get("video_tier_low_conf", 0.50))
+
+    use_hit_rate = bool(total_frames_by_video)
+    tiers: dict = {}
+
+    for name, dets_map in detections_by_video.items():
+        # 检测帧最高置信度的均值
+        frame_max_confs = [
+            max((d.get("conf", 0.0) for d in frame_dets), default=0.0)
+            for frame_dets in (dets_map or {}).values()
+            if frame_dets
+        ]
+        mean_conf = sum(frame_max_confs) / len(frame_max_confs) if frame_max_confs else 0.0
+
+        if use_hit_rate:
+            n_total  = total_frames_by_video.get(name, 0)
+            hit_frames = sum(1 for v in (dets_map or {}).values() if v)
+            hit_rate = hit_frames / n_total if n_total > 0 else 0.0
+            if hit_rate < low_dr or mean_conf < low_conf:
+                tiers[name] = "low"
+            elif hit_rate >= high_dr and mean_conf >= high_conf:
+                tiers[name] = "high"
+            else:
+                tiers[name] = "standard"
+        else:
+            # 无采样帧数，仅用 mean_conf
+            if mean_conf < low_conf:
+                tiers[name] = "low"
+            elif mean_conf >= high_conf:
+                tiers[name] = "high"
+            else:
+                tiers[name] = "standard"
+
+    return tiers
+
+
 def _is_image_path(path: str) -> bool:
     return any(path.lower().endswith(ext) for ext in IMAGE_EXT)
 
@@ -48,13 +100,13 @@ def run_production(
     detections_by_video: Optional[Dict[str, Dict[int, List[Dict[str, Any]]]]] = None,
     use_flat_output: bool = False,
     skip_html_report: bool = False,
+    inspection_dir: str = "",
 ) -> int:
     """
-    对每段视频按秒抽帧，做质量分析（工具层 raw + 决策层 env），写 Normal/Warning 图、manifest、报告。
-    若传入 detections_by_video（video basename -> {frame_idx -> [bbox]}），则对每张写出的小图写同名 .txt 伪标签（YOLO 格式）。
-    当 production_setting.save_only_screened=true 时，只落盘「质量异常(Warning) 或 该帧有 YOLO 检测」的帧，减少傻大粗全量切片。
-    use_flat_output=True 时：不建 Normal/Warning 子目录，所有图+txt 直接写 target_dir（refinery、inspection）。
-    skip_html_report=True 时：不写 quality_report.html（燃料目录只保留 manifest+图+txt，直接反哺模型）。
+    对每段视频按 vision.sample_seconds 抽帧，做质量分析，写 Normal/Warning 图、manifest、报告。
+    若传入 detections_by_video，对每张写出的小图写同名 .txt 伪标签（YOLO 格式）。
+    inspection_dir 非空时启用帧级分流：帧最高置信 >= approved_split_confidence_threshold → target_dir(refinery)，否则 → inspection_dir。
+    use_flat_output=True 时平铺输出；skip_html_report=True 时燃料目录只保留 manifest+图+txt。
     cfg 需含 quality_thresholds + production_setting。
     返回总采样帧数。
     """
@@ -73,6 +125,31 @@ def run_production(
     save_only_screened = qc_cfg.get("save_only_screened", False)
     use_i_frame = bool(cfg.get("vision", {}).get("use_i_frame_only", False))
     detections_by_video = detections_by_video or {}
+    # 帧级分流参数
+    do_frame_split = bool(inspection_dir)
+    if do_frame_split:
+        os.makedirs(inspection_dir, exist_ok=True)
+        # 动态门槛：取所有检测帧最高置信度分布的第 N 百分位
+        # refinery_top_pct=30 → 置信度前 30% 的帧进 refinery，其余进 inspection
+        refinery_top_pct = float(qc_cfg.get("refinery_top_pct", 30))
+        all_frame_confs = [
+            max((d.get("conf", 0.0) for d in dets), default=0.0)
+            for dets_map in detections_by_video.values()
+            for dets in dets_map.values()
+        ]
+        detected_confs = [c for c in all_frame_confs if c > 0]
+        refinery_min_conf = float(qc_cfg.get("refinery_min_confidence", 0.65))
+        if detected_confs:
+            detected_confs.sort()
+            cutoff_idx = max(0, int(len(detected_confs) * (1 - refinery_top_pct / 100)) - 1)
+            conf_threshold = detected_confs[cutoff_idx]
+        else:
+            conf_threshold = float(qc_cfg.get("approved_split_confidence_threshold", 0.60))
+        print(f"   📐 动态分流门槛: {conf_threshold:.3f}（前 {refinery_top_pct:.0f}% 高置信帧 → refinery，绝对下限 {refinery_min_conf:.2f}）")
+    else:
+        conf_threshold = float(qc_cfg.get("approved_split_confidence_threshold", 0.60))
+    # 归档阶段帧提取间隔与 YOLO 检测对齐；QC 阶段（limit_seconds 非空）仍用 1 秒
+    _sample_sec = float(cfg.get("vision", {}).get("sample_seconds", 1.0)) if not limit_seconds else 1.0
 
     pbar = tqdm(video_paths, desc="加工", unit="文件")
     for v_path in pbar:
@@ -93,12 +170,13 @@ def run_production(
                 frames_with_idx = []
                 cap = cv2.VideoCapture(v_path)
                 limit = fps * limit_seconds if limit_seconds else int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                step = max(1, int(fps * _sample_sec))
                 f_idx = 0
                 while cap.isOpened() and f_idx < limit:
                     ret, frame = cap.read()
                     if not ret:
                         break
-                    if f_idx % fps == 0:  # 每秒一帧
+                    if f_idx % step == 0:
                         frames_with_idx.append((frame.copy(), f_idx))
                     f_idx += 1
                 cap.release()
@@ -124,7 +202,14 @@ def run_production(
                 do_write = (env == "Normal" and save_normal) or (env != "Normal" and save_warning)
             out_dir = None
             if do_write:
-                if use_flat_output:
+                # 帧级分流：有 inspection_dir 时，按该帧最高置信度决定落哪个目录
+                if do_frame_split:
+                    frame_dets = dets_map.get(f_idx, [])
+                    max_conf = max((d.get("conf", 0.0) for d in frame_dets), default=0.0) if frame_dets else 0.0
+                    write_dir = target_dir if (max_conf >= conf_threshold and max_conf >= refinery_min_conf) else inspection_dir
+                    cv2.imwrite(os.path.join(write_dir, img_name), frame)
+                    out_dir = write_dir
+                elif use_flat_output:
                     cv2.imwrite(os.path.join(target_dir, img_name), frame)
                     out_dir = target_dir
                 elif env == "Normal" and save_normal:

@@ -55,7 +55,7 @@ def run_startup_self_check(cfg: Dict[str, Any]) -> bool:
         except OSError as e:
             logger.error("开机自检失败: %s 不可写 [%s] — %s", label, dir_path, e)
             return False
-    db_path = paths.get("db_file")
+    db_path = paths.get("db_url")
     if db_path:
         db_dir = os.path.dirname(os.path.abspath(db_path))
         try:

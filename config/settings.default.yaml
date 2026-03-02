@@ -15,7 +15,7 @@ paths:
   pending_review: "storage/pending_review"
   quarantine: "storage/quarantine"
   logs: "logs"
-  db_file: "db/factory_admin.db"
+
   batch_prefix: "Batch_"
   batch_fails_suffix: "_Fails"
   batch_subdirs:
@@ -51,6 +51,11 @@ production_setting:
   dual_gate_low: null
   save_normal: true
   save_warning: true
+  refinery_min_confidence: 0.65
+  video_tier_high_detection_rate: 0.60
+  video_tier_high_conf: 0.70
+  video_tier_low_detection_rate: 0.30
+  video_tier_low_conf: 0.50
 
 review:
   mode: "terminal"
@@ -59,6 +64,8 @@ review:
 
 labeling_pool:
   auto_update_after_batch: true
+  upload_inspection: true
+  refinery_sample_rate: 0.05
 
 labeled_return:
   consistency_threshold: 0.95

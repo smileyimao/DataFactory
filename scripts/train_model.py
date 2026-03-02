@@ -195,7 +195,9 @@ def _extract_metrics(results) -> Dict[str, float]:
 def _setup_mlflow(cfg: dict) -> None:
     import mlflow
     ml = cfg.get("mlflow") or {}
-    uri = ml.get("tracking_uri") or f"sqlite:///{os.path.join(BASE_DIR, 'db', 'mlflow.db')}"
+    uri = ml.get("tracking_uri") or os.environ.get("MLFLOW_BACKEND_URI", "")
+    if not uri:
+        raise RuntimeError("MLflow tracking_uri 未配置，请设置 MLFLOW_BACKEND_URI 或在 settings.yaml 中配置 mlflow.tracking_uri")
     mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(ml.get("experiment_name", "datafactory"))
 
@@ -351,7 +353,7 @@ def main() -> int:
     if not os.path.isabs(training_dir):
         training_dir = os.path.join(BASE_DIR, training_dir)
     for_labeling_dir = paths.get("for_labeling", os.path.join(BASE_DIR, "storage", "for_labeling"))
-    db_url = paths.get("db_url", "") or cfg_paths.get("db_file", "")
+    db_url = paths.get("db_url", "")
 
     # 基础模型
     base_model = args.model or (cfg.get("vision") or {}).get("model_path", "") or "yolov8s.pt"

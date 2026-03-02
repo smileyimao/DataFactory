@@ -118,7 +118,7 @@ def _maybe_log_mlflow(
 
 def _record_batch_lineage(cfg: dict, path_info: dict) -> None:
     """v3 血缘：写入 batch_lineage 表。"""
-    db_path = cfg.get("paths", {}).get("db_url") or cfg.get("paths", {}).get("db_file")
+    db_path = cfg.get("paths", {}).get("db_url")
     if not db_path:
         return
     batch_id = path_info.get("batch_id", "")
@@ -230,7 +230,7 @@ def run_smart_factory(
         t_qc,
         t_review,
         t_archive,
-        db_path=cfg.get("paths", {}).get("db_url") or cfg.get("paths", {}).get("db_file"),
+        db_path=cfg.get("paths", {}).get("db_url"),
     )
     _maybe_log_mlflow(
         cfg,

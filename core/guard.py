@@ -154,10 +154,10 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
 
     if cfg is None:
         cfg = config_loader.load_config()
-    db_path = cfg.get("paths", {}).get("db_file", "")
+    db_path = cfg.get("paths", {}).get("db_url", "")
     if db_path:
         if not db_tools.init_db(db_path):
-            print("❌ 数据库初始化失败，请检查 db_file 路径与权限。")
+            print("❌ 数据库初始化失败，请检查 DATABASE_URL 配置。")
             import sys
             sys.exit(1)
     watch_path = cfg.get("paths", {}).get("raw_video", "")

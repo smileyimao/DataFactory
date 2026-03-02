@@ -20,7 +20,7 @@ paths:
   pending_review: "storage/pending_review"   # 待复核队列目录（中控台 dashboard）
   quarantine: "storage/quarantine"           # Ingest 预检：重复/解码失败视频移入此目录
   logs: "logs"
-  db_file: "db/factory_admin.db"
+
 
   # 批次目录结构（path decoupling：改名只改此处）
   batch_prefix: "Batch_"
@@ -65,8 +65,15 @@ production_setting:
   save_warning: true
   save_only_screened: false  # true=只落盘「Warning 或 有 YOLO 检测」的帧，减少全量切片（见 docs/smart_slicing.md）
   confidence_tiered_output: true   # true=按置信分层落盘(refinery、inspection)；false=全部写 refinery
-  approved_split_confidence_threshold: 0.85   # ≥0.85→refinery（高置信，伪标签直接用）；<0.85→inspection（低置信，需人工标）
+  approved_split_confidence_threshold: 0.60   # 固定门槛（refinery_top_pct=0 时生效）
+  refinery_top_pct: 30                        # 动态门槛：置信度前 N% 的帧进 refinery，0=关闭用固定门槛
+  refinery_min_confidence: 0.65               # 绝对下限：即使排名靠前，低于此值也进 inspection（防止差批次污染 refinery）
   human_review_flat: true   # true=inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
+  # 视频级三档分流阈值（非 precomputed 路径生效）
+  video_tier_high_detection_rate: 0.60   # hit_rate 高档下限
+  video_tier_high_conf: 0.70             # mean_conf 高档下限
+  video_tier_low_detection_rate: 0.30    # hit_rate 低于此 → low
+  video_tier_low_conf: 0.50              # mean_conf 低于此 → low
 
 review:
   mode: dashboard   # terminal=终端逐项 y/n；dashboard=入队由中控台复核
@@ -84,8 +91,8 @@ email_setting:
 # v2.0 视觉质检（YOLO）：开关、模型路径、抽帧与推理参数（均从配置读取，无硬编码）
 vision:
   enabled: true
-  model_path: "models/yolov8s.pt"    # 主模型（small）；留空则不加载
-  sample_seconds: 10       # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
+  model_path: "models:/vehicle_detector/1"    # v1 fine-tuned；回退用 "models/yolov8s.pt"
+  sample_seconds: 5        # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
   # 四板斧：高效筛查
   use_i_frame_only: false   # true=只解 I-帧（需 ffprobe），减少解码量
   motion_threshold: 0       # 运动唤醒：帧差低于此值不跑 YOLO，0=关闭
@@ -94,7 +101,7 @@ vision:
   # 推理参数（predict）：未配置时由 config_loader 填入工业默认值
   conf: 0.25                # 置信度阈值 [0,1]
   iou: 0.45                 # NMS IoU 阈值
-  classes: null             # 过滤类别 ID 列表，null 为全部
+  classes: [2, 5, 7]       # 只检测车辆：car(2) bus(5) truck(7)；null 为全部
   device: null              # 推理设备，如 "cuda:0" / "cpu" / null 自动
   max_det: 300              # 每图最大检测框数
   imgsz: 640                # 输入尺寸（边长）
@@ -105,7 +112,7 @@ vision:
 mlflow:
   enabled: true
   experiment_name: "datafactory"
-  tracking_uri: "http://0.0.0.0:5000"  # MLflow server，局域网可访问；改回 null 退回本地 sqlite
+  tracking_uri: "http://0.0.0.0:5001"  # MLflow server，局域网可访问；改回 null 退回本地 sqlite
 
 # M2 版本映射：日志与元数据中可写可读，便于 v4 血缘与审计
 version_mapping:
@@ -122,13 +129,19 @@ logging:
 startup_self_check: true    # 启动时校验配置与关键目录可写，失败则退出
 startup_golden_run: false  # 为 true 时用 paths.golden 下视频真跑一遍 QC，失败则退出（edge 建议开启）
 
+# CVAT 上传配置
+cvat:
+  upload_pseudo_labels: false   # true=上传伪标签供标注员参考；false=只上传图片，标注员从零开始
+
 # 待标池自动更新：每批归档后自动将 inspection 追加到 for_labeling
 labeling_pool:
   auto_update_after_batch: true
+  upload_inspection: true        # true=inspection 全量进待标池（默认开）
+  refinery_sample_rate: 0.05     # refinery 按视频分层抽样比例，0=不抽
 
 # 标注回传与伪标签一致性校验（多级净化）
 labeled_return:
-  consistency_threshold: 0.95   # 一致率低于此值报警，要求差异部分复核
+  consistency_threshold: 0      # 0=关闭报警，仅记录数值用于趋势观察；未来可改为双向阈值（>98%懒标/<5%偏差）
   alert_via_email: true        # 是否发邮件报警（使用 email_setting）
   skip_empty_labels: true      # true=并入训练集时丢弃无标注的图（变化不大未标的相似帧），减少冗余
 

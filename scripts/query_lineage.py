@@ -23,7 +23,7 @@ from engines import db_connection, db_tools
 def _list_recent_batches(db_url: str, limit: int = 10) -> None:
     """列出最近批次血缘。"""
     if not db_url:
-        print("❌ 数据库未配置 db_file / DATABASE_URL")
+        print("❌ 数据库未配置，请设置 DATABASE_URL 环境变量")
         return
     p = db_connection.ph(db_url)
     try:
@@ -64,7 +64,7 @@ def _show_batch(db_url: str, batch_id: str) -> None:
 def _show_train(db_url: str, run_id: str) -> None:
     """展示模型训练血缘。"""
     if not db_url:
-        print("❌ 数据库未配置 db_file / DATABASE_URL")
+        print("❌ 数据库未配置，请设置 DATABASE_URL 环境变量")
         return
     p = db_connection.ph(db_url)
     try:
@@ -100,7 +100,7 @@ def _show_train(db_url: str, run_id: str) -> None:
 def _list_recent_trains(db_url: str, limit: int = 10) -> None:
     """列出最近的模型训练记录。"""
     if not db_url:
-        print("❌ 数据库未配置 db_file / DATABASE_URL")
+        print("❌ 数据库未配置，请设置 DATABASE_URL 环境变量")
         return
     p = db_connection.ph(db_url)
     try:
@@ -130,7 +130,7 @@ def _list_recent_trains(db_url: str, limit: int = 10) -> None:
 def _show_import(db_url: str, import_id: str) -> None:
     """展示标注回传血缘。"""
     if not db_url:
-        print("❌ 数据库未配置 db_file / DATABASE_URL")
+        print("❌ 数据库未配置，请设置 DATABASE_URL 环境变量")
         return
     p = db_connection.ph(db_url)
     try:
@@ -151,7 +151,7 @@ def _show_import(db_url: str, import_id: str) -> None:
         print(f"📊 标注回传血缘: {imp_id}\n")
         print(f"  关联批次: {batch_ids}")
         print(f"  训练目录: {training_dir}")
-        print(f"  一致率: {rate:.2%}  并入文件数: {merged}")
+        print(f"  伪标签一致率: {rate:.2%}  并入文件数: {merged}")
         print(f"  创建时间: {created}")
     except Exception as e:
         print(f"❌ 查询失败: {e}")

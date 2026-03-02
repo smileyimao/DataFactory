@@ -76,7 +76,9 @@
 | **v2.11** | 🔶 设计完成 | 主动学习标注优先级（manifest max_confidence/qc_env 待实现） |
 | **v3.0** | ✅ 完成 | 数据血缘（batch_lineage、label_import）；MLflow 血缘；Model Registry |
 | **v3.1** | ✅ 完成 | 本地 CVAT 闭环；YOLO 训练全链路；MLflow 注册；model_train 血缘 |
-| **v3.2** | ✅ 完成 | **PostgreSQL 多人协作 DB**；SQLite 回退兼容；docker-compose 一键启动 |
+| **v3.2** | ✅ 完成 | **PostgreSQL 多人协作 DB**；docker-compose 一键启动；SQLite 完全移除（仅保留 --test 临时隔离）|
+| **v3.3** | ✅ 完成 | 帧级 refinery_min_confidence 绝对下限；视频级三档分流（hit_rate + mean_conf → high/standard/low）|
+| **v3.4** | ✅ 完成 | 标注池分层策略：inspection 全量 + refinery 视频分层抽样（refinery_sample_rate）；抽检 IoU 低于门槛自动发邮件 + 阈值调整建议 |
 | **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
 | **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制 |
 
@@ -100,7 +102,7 @@
 | 单元 / 集成测试 | pytest tests/ -v -m "not e2e" | unit/integration/api 层 |
 | 环境重置 | scripts/reset_factory.py, reset_config.py | dry-run / for-test / db |
 | 版本可追溯 | version_mapping, version_info.json, path_info | 每批次规则/模型版本可审计 |
-| **数据库** | **PostgreSQL（docker compose up -d）** | **DATABASE_URL 未设置自动回退 SQLite** |
+| **数据库** | **PostgreSQL（docker compose up -d）** | **DATABASE_URL 必须设置，未设置报错退出** |
 | **TODO** | CI 自动跑 pytest, main.py --test | 设计支持，pipeline 待建 |
 
 ---
@@ -163,6 +165,7 @@
 - [x] 回传接收：标注数据一次性导入，写入 storage/labeled_return/，创建 Import_YYYYMMDD_HHMMSS
 - [x] 伪标签对比：回传 vs 伪标签一致性（IoU 0.5 + class match），输出 comparison_report.json
 - [x] 阈值与告警：config 一致性阈值（默认 95%），低于则邮件告警，标记差异样本待复核
+- [x] 指标重命名：「一致率」→「伪标签一致率」，明确为差异监控指标，非标注质量评分
 - [x] 训练触发：合规数据并入 storage/training/Import_xxx/，关联 import_id
 - [x] 标签写回批次：合规后写回 archive/Batch_xxx/labeled/，safe_copy 防静默失败
 - [ ] API 上传：可选 HTTP 上传 return zip（预留）
@@ -251,11 +254,23 @@
 - [x] 闭环打通：for_labeling → CVAT → import_labeled_return → training，全程脚本化
 - [x] model_train 血缘表：scripts/train_model.py 写入，scripts/query_lineage.py --train-id 查询
 
+### 质量分流增强（v3.3 ✅）
+
+- [x] 帧级 refinery_min_confidence 绝对下限：即使排名靠前，低于此值也进 inspection，防差批次污染 refinery
+- [x] 视频级三档分流：hit_rate + mean_conf → high/standard/low；低质视频（low 档）整体进 inspection，不受帧级分流影响
+  - 4 个阈值可配置：`video_tier_high_detection_rate`、`video_tier_high_conf`、`video_tier_low_detection_rate`、`video_tier_low_conf`
+  - 仅在非 precomputed_detections 路径生效（precomputed 采样帧少，分级不准）
+  - 日志摘要示例：`📊 视频分级: 高质 3  标准 2  低质 1（低质 → inspection）`
+
+### 标注池分层策略 + Refinery 抽检报警（v3.4 ✅）
+
+- [x] 标注池分层策略：inspection 全量 + refinery 按视频分层抽样（refinery_sample_rate）；抽检 IoU 低于门槛自动发邮件 + approved_split_confidence_threshold / refinery_top_pct 调整建议
+
 ### 多人协作数据库（v3.2 ✅）
 
 - [x] PostgreSQL（docker-compose.yml，postgres:16-alpine）
-- [x] 薄适配层（engines/db_connection.py）：SQLite 本地开发 / PostgreSQL 团队协作双支持
-- [x] DATABASE_URL 未设置自动回退 SQLite，测试无需改动
+- [x] 薄适配层（engines/db_connection.py）：PostgreSQL 生产 / SQLite 仅限 --test 临时隔离
+- [x] DATABASE_URL 必须设置，未设置报错退出；--test 模式使用临时 SQLite 不影响生产
 - [x] MLFLOW_BACKEND_URI 切换 MLflow 后端到 PostgreSQL
 
 ---
@@ -287,6 +302,13 @@
 - [ ] raw_lidar/：Ingest（.pcd/.las/.ply），点云 QC，与视频时间戳对齐
 - [ ] 统一去重+质量策略，Batch_xxx/video 与 Batch_xxx/lidar 对齐
 
+### 标注质量控制（QC for Annotation）
+
+- [ ] **IAA（Inter-Annotator Agreement）**：同一批图片由 2 名标注员分别标注，比较一致率作为真实质量信号；差异大的样本自动进入复核队列
+- [ ] **黄金集测试**：在日常任务中混入已知正确答案的图片，检测标注员是否认真标注（橡皮图章检测）
+- [ ] **伪标签一致率阈值调整**：当前 95% 门槛意义不大（人工修正模型错误时必然低于此值）；改为「异常高（>98%）触发橡皮图章报警」 + 「异常低（<5%）触发标注偏差报警」，中间区间视为正常
+- [ ] **标注轮次追踪**：记录每张图被标注的次数与标注员 ID，支持 IAA 计算和审计
+
 ### 访问控制与多租户
 
 - [ ] 模型组与账号：各组只能使用和热更新自己的模型资产
@@ -308,7 +330,7 @@
 | 编程与数据 | Python, SQL, 批处理 |
 | ML/CV | 规则引擎 + YOLO (v2)，PyTorch/NumPy |
 | 实验与交付 | MLflow (v2)，版本映射，数据闭环 (v2.5) |
-| 数据库 | **PostgreSQL**（团队协作）/ SQLite（本地开发回退） |
+| 数据库 | **PostgreSQL**（Docker，必须配置） |
 | 标注工具 | **本地 CVAT**（Docker，API 全自动，零成本） |
 | 运维与部署 | 日志、YAML、.env、Docker（compose），on-edge (v4) |
 | 协作与文档 | Git, README/CHANGELOG/Roadmap，邮件与人工复核闭环 |
