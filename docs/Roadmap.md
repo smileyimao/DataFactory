@@ -81,6 +81,7 @@
 | **v3.4** | ✅ 完成 | 标注池分层策略：inspection 全量 + refinery 视频分层抽样（refinery_sample_rate）；抽检 IoU 低于门槛自动发邮件 + 阈值调整建议 |
 | **v3.5** | ✅ 完成 | 可观测性双看板：SENTINEL-1 帧级遥测（port 8766）+ HQ Global Command Center（port 8767）|
 | **v3.6** | ✅ 完成 | HQ 全屏适配 + 白底修复 + 实时天气（Open-Meteo）+ DataFactory 品牌徽标；SENTINEL-1 同步全屏 |
+| **v3.7** | ✅ 完成 | Site Status 实时本地时间（pytz）+ OpenWeatherMap 真实天气（API Key）；Flask 端点 `/api/sites/time` `/api/sites/weather`；`engines/site_info.py` 10 分钟缓存 |
 | **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
 | **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制、HQ 真实数据接入 |
 
@@ -314,6 +315,17 @@
 - [x] 所有 `dcc.Graph` 改为 `responsive=True`，移除硬编码 `height=` 参数，由容器 CSS 控制尺寸
 - [x] SENTINEL-1 左侧 QC 列：gauge 固定 130px + trend 58px，`overflowY: auto`
 - [x] SPC 趋势图：`responsive=True + flex: 1` 自适应剩余高度
+
+---
+
+### Site Status 实时时间 + 真实天气（v3.7 ✅）
+
+- [x] `engines/site_info.py`：`get_site_times()`（pytz，IANA 时区，降级 UTC 偏移）+ `get_site_weather()`（OpenWeatherMap Current Weather API，10 分钟缓存，无 Key 时返回 N/A 占位）
+- [x] `config/settings.yaml` / `settings.default.yaml`：新增 `sites:` 节（sudbury/pilbara/atacama → timezone / lat / lon）
+- [x] Flask 端点：`GET /api/sites/time` 和 `GET /api/sites/weather`（via `app.server.route()`）
+- [x] HQ callback：`get_site_times()` 返回值注入 weather dict（`w["local_time"]`），`make_site_tiles(weather)` 3 行布局：站名 / `Status · HH:MM · emoji°C` / 阶段
+- [x] `requirements.txt` 新增 `pytz>=2024.1`、`requests>=2.31.0`
+- [x] 降级策略：无 API Key → N/A 占位，不影响 dashboard 启动；pytz 未安装 → UTC 偏移估算
 
 ---
 
