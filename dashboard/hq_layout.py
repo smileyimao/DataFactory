@@ -144,10 +144,12 @@ def make_world_map(packet_lon: float = -80.99,
 
     fig.update_layout(
         geo=dict(
-            showland=True,       landcolor="#1A2A1A",
-            showocean=True,      oceancolor="#080D14",
-            showcoastlines=True, coastlinecolor="#2A3A2A", coastlinewidth=0.7,
-            showcountries=True,  countrycolor="#1E221E",
+            showland=True,       landcolor="#2B4A35",
+            showocean=True,      oceancolor="#0D1E32",
+            showcoastlines=True, coastlinecolor="#4A7A5A", coastlinewidth=0.9,
+            showcountries=True,  countrycolor="#3A5045",
+            showlakes=True,      lakecolor="#0D1E32",
+            showrivers=False,
             showframe=False,
             bgcolor="#0B0B0B",
             projection_type="natural earth",

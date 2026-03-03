@@ -326,6 +326,8 @@ def refresh(_n, store):
         times = get_site_times()   # {"sudbury": "07:32", ...}（小写键）
         # 将本地时间注入 weather dict（dashboard layout 通过 w["local_time"] 读取）
         for name_upper, w in weather.items():
+            if not isinstance(w, dict):   # 跳过 "ts" 等非站点键
+                continue
             w["local_time"] = times.get(name_upper.lower(), "--:--")
     except Exception:
         pass   # site_info 失败不影响主看板刷新
