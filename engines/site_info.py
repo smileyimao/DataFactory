@@ -142,8 +142,7 @@ def get_site_weather() -> Dict[str, Dict[str, Any]]:
         _weather_cache.update({"ts": now, "data": result})
         return result
 
-    import urllib.request
-    import json as _json
+    import requests as _requests
 
     for name, info in sites.items():
         lat = info.get("lat", 0)
@@ -153,9 +152,9 @@ def get_site_weather() -> Dict[str, Dict[str, Any]]:
                 f"https://api.openweathermap.org/data/2.5/weather"
                 f"?lat={lat}&lon={lon}&appid={api_key}&units=metric"
             )
-            req = urllib.request.Request(url, headers={"User-Agent": "DataFactory/3.6"})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                data = _json.loads(r.read())
+            resp = _requests.get(url, timeout=5, headers={"User-Agent": "DataFactory/3.7"})
+            resp.raise_for_status()
+            data = resp.json()
 
             temp     = round(data["main"]["temp"])
             main_key = data["weather"][0]["main"]          # e.g. "Snow"
