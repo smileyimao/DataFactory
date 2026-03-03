@@ -98,11 +98,17 @@ _WMO_EMOJI: Dict[int, str] = {
 def _poll_weather() -> dict:
     """
     每 600 秒从 Open-Meteo 拉取三站点实时气温 + 天气码。
-    无需 API Key；失败时保留上次缓存值。
+    无需 API Key；使用 requests（含 certifi）解决 macOS SSL 问题；
+    失败时保留上次缓存值。
     """
     now = time.time()
     if now - _WEATHER_CACHE.get("ts", 0) < 600.0:
         return _WEATHER_CACHE
+
+    try:
+        import requests as _req
+    except ImportError:
+        _req = None
 
     for name, (lat, lon) in _SITE_COORDS.items():
         try:
@@ -111,8 +117,12 @@ def _poll_weather() -> dict:
                 f"?latitude={lat}&longitude={lon}"
                 f"&current=temperature_2m,weathercode&timezone=auto"
             )
-            with urllib.request.urlopen(url, timeout=5) as r:
-                data = _json.loads(r.read())
+            if _req is not None:
+                resp = _req.get(url, timeout=5)
+                data = resp.json()
+            else:
+                with urllib.request.urlopen(url, timeout=5) as r:
+                    data = _json.loads(r.read())
             cur   = data.get("current", {})
             temp_c = cur.get("temperature_2m")
             wcode  = int(cur.get("weathercode", 0))

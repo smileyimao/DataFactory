@@ -144,20 +144,22 @@ def make_world_map(packet_lon: float = -80.99,
 
     fig.update_layout(
         geo=dict(
-            showland=True,       landcolor="#2B4A35",
-            showocean=True,      oceancolor="#0D1E32",
-            showcoastlines=True, coastlinecolor="#4A7A5A", coastlinewidth=0.9,
-            showcountries=True,  countrycolor="#3A5045",
-            showlakes=True,      lakecolor="#0D1E32",
+            showland=True,       landcolor="#3D6B48",
+            showocean=True,      oceancolor="#152D4A",
+            showcoastlines=True, coastlinecolor="#60A070", coastlinewidth=1.0,
+            showcountries=True,  countrycolor="#4A6858",
+            showlakes=True,      lakecolor="#152D4A",
             showrivers=False,
             showframe=False,
-            bgcolor="#0B0B0B",
+            bgcolor="#141414",
             projection_type="natural earth",
         ),
         paper_bgcolor="#0B0B0B",
         plot_bgcolor="#0B0B0B",
         margin=dict(l=0, r=0, t=0, b=0),
         template=None,
+        uirevision="world-map",          # 保持视角，只更新数据包 trace，消除闪烁
+        transition={"duration": 900, "easing": "linear"},   # 平滑插值替代硬切换
     )
     return fig
 
