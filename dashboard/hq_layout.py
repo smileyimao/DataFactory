@@ -304,8 +304,9 @@ def make_metric_gauge(
     fig = go.Figure(go.Indicator(
         mode  = "gauge+number",
         value = value,
-        title = {"text": f"<b>{title}</b>", "font": {"size": 11, "color": TEXT}},
-        number= {"suffix": f" {unit}", "font": {"size": 20, "color": color}},
+        # 不设 title：面板顶部的 hq-label 已提供标签，避免双重标题+裁切
+        number= {"suffix": f" {unit}", "font": {"size": 26, "color": color},
+                 "valueformat": ".3f" if max_val <= 1.0 else ".1f"},
         gauge = {
             "axis":      {"range": [min_val, max_val],
                           "tickcolor": DIM, "tickfont": {"size": 8, "color": DIM}},
@@ -324,7 +325,7 @@ def make_metric_gauge(
         },
     ))
     fig.update_layout(
-        margin=dict(l=8, r=8, t=22, b=0),
+        margin=dict(l=8, r=8, t=6, b=4),
         paper_bgcolor=PANEL, plot_bgcolor=PANEL,
         font={"family": _MONO, "size": 9, "color": TEXT},
     )

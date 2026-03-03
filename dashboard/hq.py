@@ -45,6 +45,9 @@ from hq_layout import (
 # ── HQ 常量 ──────────────────────────────────────────────────────────────
 GOLD_BASE       = 1_248_500    # 历史归档基数（展示用）
 GOLD_SCALE      = 300          # file_count → 帧数估算系数
+# Mock 模式下每秒增加帧数（3 站点 × ~1.2 帧/秒 = 3.5 帧/秒）
+# 相当于约 30 万帧/天，展示公司数据资产持续增值
+GOLD_RATE       = 3.5
 
 STORAGE_USED_PB = 1.2
 STORAGE_TOTAL_PB= 5.0
@@ -279,10 +282,16 @@ def refresh(_n, store):
 
     # ── DB / Mock 数据 ───────────────────────────────────────────────────
     db      = _poll_db(_DB_URL)
-    gold    = db["gold"]
     conf    = db["conf"]
     clarity = db["clarity"]
     iou     = db["iou"]
+
+    # Gold Assets：有 DB 时读真实值；mock 模式下按会话时间持续增长
+    if _DB_URL:
+        gold = db["gold"]
+    else:
+        elapsed_sec = (datetime.now() - _session_start).total_seconds()
+        gold = GOLD_BASE + int(elapsed_sec * GOLD_RATE)
 
     # ── 本地硬件 ────────────────────────────────────────────────────────
     hw = _poll_hw()
