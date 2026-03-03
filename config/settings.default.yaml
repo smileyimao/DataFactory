@@ -82,6 +82,21 @@ email_setting:
   sender: ""
   receiver: ""
 
+# HQ 全球站点：用于本地时钟 + 天气 API
+sites:
+  sudbury:
+    timezone: "America/Toronto"
+    lat: 46.4917
+    lon: -81.0000
+  pilbara:
+    timezone: "Australia/Perth"
+    lat: -23.3517
+    lon: 119.7200
+  atacama:
+    timezone: "America/Santiago"
+    lat: -24.5000
+    lon: -69.2500
+
 # v2.0 视觉质检（YOLO）：默认关闭，新手可先跑通规则质检再开启
 vision:
   enabled: false

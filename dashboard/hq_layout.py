@@ -381,13 +381,22 @@ def make_site_tiles(weather: dict = None) -> html.Div:
         emoji = w.get("emoji", "☀")
         phase = w.get("phase", s["phase"])
 
+        # 本地时间（由 hq.py callback 通过 weather["local_time"] 注入）
+        local_time = w.get("local_time", "--:--")
+        # 温度格式：有数值时显示 "−5°C"，无时只显示 emoji
+        if temp and temp != "N/A":
+            weather_str = f"{emoji} {temp}"
+        else:
+            weather_str = emoji if emoji != "~" else "N/A"
+
         cards.append(html.Div(
             className=f"site-card {extra_cls}".strip(),
             style={"borderLeftColor": sc},
             children=[
+                # 行 1：站点名 + 区域
                 html.Div(
                     style={"display": "flex", "justifyContent": "space-between",
-                           "marginBottom": "4px"},
+                           "marginBottom": "3px"},
                     children=[
                         html.Span([
                             html.Span(className=f"pulse-dot {s['dot_class']}",
@@ -400,14 +409,25 @@ def make_site_tiles(weather: dict = None) -> html.Div:
                                   style={"color": DIM, "fontSize": "9px"}),
                     ],
                 ),
+                # 行 2：状态 · 本地时间 · 天气
+                html.Div(
+                    style={"display": "flex", "gap": "6px", "fontSize": "10px",
+                           "alignItems": "center", "marginBottom": "2px"},
+                    children=[
+                        html.Span(s["status"], style={"color": sc, "fontWeight": "700"}),
+                        html.Span("·", style={"color": DIM}),
+                        html.Span(local_time,  style={"color": ICE, "letterSpacing": "0.5px"}),
+                        html.Span("·", style={"color": DIM}),
+                        html.Span(weather_str, style={"color": TEXT}),
+                    ],
+                ),
+                # 行 3：时段 + 任务
                 html.Div(
                     style={"display": "flex", "gap": "8px", "fontSize": "9px",
-                           "color": DIM, "flexWrap": "wrap"},
+                           "color": DIM},
                     children=[
-                        html.Span(s["status"],               style={"color": sc}),
-                        html.Span(f"{emoji} {phase}"),
-                        html.Span(temp,                      style={"color": ICE}),
-                        html.Span(s["task"],                 style={"color": TEXT}),
+                        html.Span(f"{phase}"),
+                        html.Span(s["task"], style={"color": DIM}),
                     ],
                 ),
             ],

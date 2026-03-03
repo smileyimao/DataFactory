@@ -119,6 +119,21 @@ version_mapping:
   algorithm_version: "rules_v1"   # 规则质检算法版本
   vision_model_version: ""       # 视觉模型版本，留空则由运行时加载的模型路径填充
 
+# HQ 全球站点：用于本地时钟 + 天气 API
+sites:
+  sudbury:
+    timezone: "America/Toronto"
+    lat: 46.4917
+    lon: -81.0000
+  pilbara:
+    timezone: "Australia/Perth"
+    lat: -23.3517
+    lon: 119.7200
+  atacama:
+    timezone: "America/Santiago"
+    lat: -24.5000
+    lon: -69.2500
+
 # P1 工业级：时区、日志轮转
 timezone: "America/Toronto"
 logging:

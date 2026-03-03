@@ -248,6 +248,29 @@ app.layout = build_hq_layout()
 _DB_URL = ""   # 由 main() 注入
 
 
+# ── Flask 端点（挂载在 Dash 底层 Flask server）────────────────────────────
+# GET /api/sites/time   → 各站点本地时间（每次实时计算，无缓存）
+# GET /api/sites/weather → 各站点天气（10 分钟缓存，需 OPENWEATHER_API_KEY）
+
+from flask import jsonify
+
+@app.server.route("/api/sites/time")
+def api_sites_time():
+    try:
+        from engines.site_info import get_site_times
+        return jsonify(get_site_times())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.server.route("/api/sites/weather")
+def api_sites_weather():
+    try:
+        from engines.site_info import get_site_weather
+        return jsonify(get_site_weather())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.callback(
     [
         Output("hq-status-bar",         "children"),
@@ -296,8 +319,16 @@ def refresh(_n, store):
     # ── 本地硬件 ────────────────────────────────────────────────────────
     hw = _poll_hw()
 
-    # ── 天气（10 分钟缓存，Open-Meteo）──────────────────────────────────
+    # ── 天气（Open-Meteo 10 分钟缓存）+ 实时本地时间 ────────────────────
     weather = _poll_weather()
+    try:
+        from engines.site_info import get_site_times
+        times = get_site_times()   # {"sudbury": "07:32", ...}（小写键）
+        # 将本地时间注入 weather dict（dashboard layout 通过 w["local_time"] 读取）
+        for name_upper, w in weather.items():
+            w["local_time"] = times.get(name_upper.lower(), "--:--")
+    except Exception:
+        pass   # site_info 失败不影响主看板刷新
 
     # ── 状态栏 ──────────────────────────────────────────────────────────
     elapsed = datetime.now() - _session_start
