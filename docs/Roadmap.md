@@ -79,8 +79,10 @@
 | **v3.2** | ✅ 完成 | **PostgreSQL 多人协作 DB**；docker-compose 一键启动；SQLite 完全移除（仅保留 --test 临时隔离）|
 | **v3.3** | ✅ 完成 | 帧级 refinery_min_confidence 绝对下限；视频级三档分流（hit_rate + mean_conf → high/standard/low）|
 | **v3.4** | ✅ 完成 | 标注池分层策略：inspection 全量 + refinery 视频分层抽样（refinery_sample_rate）；抽检 IoU 低于门槛自动发邮件 + 阈值调整建议 |
+| **v3.5** | ✅ 完成 | 可观测性双看板：SENTINEL-1 帧级遥测（port 8766）+ HQ Global Command Center（port 8767）|
+| **v3.6** | ✅ 完成 | HQ 全屏适配 + 白底修复 + 实时天气（Open-Meteo）+ DataFactory 品牌徽标；SENTINEL-1 同步全屏 |
 | **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
-| **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制 |
+| **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制、HQ 真实数据接入 |
 
 ---
 
@@ -266,6 +268,55 @@
 
 - [x] 标注池分层策略：inspection 全量 + refinery 按视频分层抽样（refinery_sample_rate）；抽检 IoU 低于门槛自动发邮件 + approved_split_confidence_threshold / refinery_top_pct 调整建议
 
+### 可观测性双看板（v3.5 ✅）
+
+**SENTINEL-1 — 帧级遥测（port 8766）**
+
+- [x] DataSource 适配层：`--source mock / archive / live` 三档切换（mock 已完成，archive 接入真实归档帧，live 存根待 v4）
+- [x] 实时物理 QC：Jitter（AR-1 + 尖峰检测）/ Clarity 0-100%（Laplacian 归一化）/ Brightness 半圆仪表 + 60 帧趋势图
+- [x] 视频主视窗：PIL 叠加检测框 + FPS + 硬件温度，base64 JPEG 500ms 刷新
+- [x] Model Audit 面板：Confidence 大数字 + 进度条；IoU Snapshot（labeled_return 历史快照）
+- [x] SPC 趋势图：置信度 CL/UCL/LCL 控制线，OOC 点红叉标注，先验 → 20 帧后滚动切换
+- [x] 静默 CSV 日志：Type_A（物理）/ Type_B（置信度）/ Type_C（IoU）三类报警自动写入
+
+**HQ Global Command Center — 批次级全局视图（port 8767）**
+
+- [x] 全球网络地图：Scattergeo 暗色地图，Sudbury 双圈高亮，卫星弧线，数据包动画（50s 周期）
+- [x] 三站点状态卡：Sudbury / Pilbara / Atacama，状态 / 时区 / 气温 / 任务，脉冲点动效
+- [x] 系统拓扑图：Edge → DataLink → HQ-Central，ICE 冰蓝虚线 + 移动数据包
+- [x] Gold Assets 里程表：CSS digit-flip 翻转动效，读 `batch_metrics.file_count × 300 + 基数`
+- [x] Local Edge HW：psutil 真实 CPU / 内存 / 温度 / 电池，3 秒缓存
+- [x] HQ Cloud 指标：存储环形图（1.2PB / 5PB）/ 8× H100 利用率横条（Mock）/ 日合格率
+- [x] 核心指标仪表（ROW D）：Confidence / Clarity / IoU Snapshot 三块半圆仪表，30 秒读 DB
+
+### HQ 看板增强 + 全屏适配（v3.6 ✅）
+
+**Bug 修复**
+
+- [x] 世界地图白底：移除 `dp-bg` 与 `backdrop-filter`（与 Plotly SVG 合成层冲突），改用显式 `paper_bgcolor="#0B0B0B"` + `template=None`
+- [x] `html, body { background: #050505; overflow: hidden }` 修复白底泄漏；`.main-svg { background: transparent }` 防止 Plotly 内部白框
+
+**实时天气（Open-Meteo，无 API Key）**
+
+- [x] `hq.py _poll_weather()`：10 分钟缓存，拉取 Sudbury / Pilbara / Atacama 实时气温 + WMO 天气码 → emoji
+- [x] `_get_phase()`：按 UTC 偏移动态计算 Day / Night / Sunrise / Sunset
+- [x] `make_site_tiles(weather=None)`：优先显示实时数据，网络失败时降级到静态默认值
+- [x] Callback 新增 `Output("hq-sites", "children")`，站点卡每 tick 同步实时天气
+
+**DataFactory 品牌**
+
+- [x] HQ 和 SENTINEL-1 标题栏均新增 **`DF`** 徽标（黑底冰蓝/绿色圆角方块）
+
+**全屏适配（两个看板）**
+
+- [x] 根容器：`height: 100vh; overflow: hidden; display: flex; flexDirection: column`
+- [x] 各行按比例分配 `flex`（3 / 2.2 / 1.9 / 1.7），`minHeight: 0` 防止 flex 溢出
+- [x] 所有 `dcc.Graph` 改为 `responsive=True`，移除硬编码 `height=` 参数，由容器 CSS 控制尺寸
+- [x] SENTINEL-1 左侧 QC 列：gauge 固定 130px + trend 58px，`overflowY: auto`
+- [x] SPC 趋势图：`responsive=True + flex: 1` 自适应剩余高度
+
+---
+
 ### 多人协作数据库（v3.2 ✅）
 
 - [x] PostgreSQL（docker-compose.yml，postgres:16-alpine）
@@ -308,6 +359,21 @@
 - [ ] **黄金集测试**：在日常任务中混入已知正确答案的图片，检测标注员是否认真标注（橡皮图章检测）
 - [ ] **伪标签一致率阈值调整**：当前 95% 门槛意义不大（人工修正模型错误时必然低于此值）；改为「异常高（>98%）触发橡皮图章报警」 + 「异常低（<5%）触发标注偏差报警」，中间区间视为正常
 - [ ] **标注轮次追踪**：记录每张图被标注的次数与标注员 ID，支持 IAA 计算和审计
+
+### HQ 真实数据接入（v4.x）
+
+| 层次 | 内容 | 前置条件 |
+|------|------|---------|
+| **近期**（改几行 SQL） | Daily Yield 从 `production_history` 实时计算；Confidence/Clarity 均值写入 `batch_metrics`（加两列） | `qc_engine.py` 写批次尾部均值 |
+| **中期**（管道配合） | `batch_metrics` 新增 `avg_confidence` / `avg_clarity`；HQ 每 30s 读最新值替代 mock 漂移 | ALTER TABLE + qc_engine 写入 |
+| **长期**（多机部署） | Pilbara / Atacama 边缘机器定时心跳写中央 DB；HQ Storage 对接云存储 API；H100 利用率接 DCGM / nvidia-smi | 多节点部署 + 统一 DB |
+
+- [ ] `batch_metrics` 加 `avg_confidence REAL`、`avg_clarity REAL` 列
+- [ ] `qc_engine.py` 批次结束时写入帧级均值
+- [ ] `hq.py _poll_db()` 读新列替代 mock Confidence/Clarity
+- [ ] Daily Yield：`SELECT COUNT(*) FILTER(status='approved') / COUNT(*)` 实时计算
+- [ ] 边缘心跳表（`edge_heartbeat`）：node_id / status / last_seen / task，HQ 站点卡读真实状态
+- [ ] `SENTINEL-1 --source live`：轮询 DB ring buffer，接入 main.py --guard 实时输出
 
 ### 访问控制与多租户
 

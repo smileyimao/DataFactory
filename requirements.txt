@@ -38,6 +38,13 @@ psycopg2-binary>=2.9
 fastapi>=0.100.0
 uvicorn>=0.22.0
 
+# SENTINEL-1 遥测看板（python dashboard/sentinel.py，port 8766）
+dash>=2.14.0
+plotly>=5.18.0
+Pillow>=9.0.0
+psutil>=5.9.0
+# GPUtil>=1.4.0   # 可选：GPU 温度显示（pip install gputil）
+
 # 可选：CVAT 标注上传（scripts/cvat_upload_annotations.py 云版 405 时用）
 # cvat-sdk>=2.0.0
 certifi>=2023.0.0   # macOS 上 HTTPS 证书验证（SSL_CERT_FILE）

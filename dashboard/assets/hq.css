@@ -1,0 +1,348 @@
+/* SENTINEL HQ — Global Command Center Styles */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ── 全局重置：防止白底泄漏 + 全屏适配 ─────────────────────────────── */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: #050505 !important;
+    overflow: hidden;
+}
+
+/* Plotly 图表内部背景强制深色（修复 dp-bg backdrop-filter 白底问题）*/
+.js-plotly-plot .plotly .main-svg {
+    background: transparent !important;
+}
+
+*, body {
+    font-family: 'JetBrains Mono', 'Courier New', monospace !important;
+    box-sizing: border-box;
+}
+
+/* ── CRT 扫描线纹理（全页固定叠加层）─────────────────────────────── */
+.crt-lines {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9997;
+    background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 3px,
+        rgba(0, 242, 255, 0.014) 3px,
+        rgba(0, 242, 255, 0.014) 4px
+    );
+}
+
+/* ── 扫描光线（从上到下缓慢扫过）─────────────────────────────────── */
+@keyframes crt-sweep {
+    0%   { top: -6px;    opacity: 0.7; }
+    15%  { opacity: 0.5; }
+    85%  { opacity: 0.3; }
+    100% { top: 100vh;   opacity: 0;   }
+}
+
+.crt-sweep {
+    position: fixed;
+    left: 0;
+    right: 0;
+    height: 5px;
+    background: linear-gradient(
+        to bottom,
+        transparent,
+        rgba(0, 242, 255, 0.10),
+        transparent
+    );
+    animation: crt-sweep 12s linear infinite;
+    pointer-events: none;
+    z-index: 9996;
+}
+
+/* ── 里程表 Odometer ──────────────────────────────────────────────── */
+.odo-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    line-height: 1;
+}
+
+.odo-digit-outer {
+    width: 0.65em;
+    height: 1.2em;
+    overflow: hidden;
+    background: #0A0A0A;
+    border: 1px solid #2A3A2A;
+    border-radius: 3px;
+    position: relative;
+    margin: 0 1px;
+    box-shadow: inset 0 1px 4px rgba(0,0,0,0.8);
+}
+
+.odo-digit-inner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    transition: transform 0.48s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    line-height: 1.2em;
+    text-align: center;
+}
+
+.odo-sep {
+    color: #39FF14;
+    opacity: 0.45;
+    padding: 0 1px;
+    line-height: 1.2em;
+    font-size: 0.75em;
+    align-self: flex-end;
+    padding-bottom: 0.05em;
+}
+
+/* ── Site status cards ───────────────────────────────────────────── */
+.site-card {
+    border-radius: 3px;
+    padding: 9px 12px;
+    margin-bottom: 7px;
+    background: rgba(13, 13, 13, 0.88);
+    border: 0.8px solid rgba(255, 255, 255, 0.07);
+    border-left-width: 3px;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+/* ── Pulse dot ───────────────────────────────────────────────────── */
+@keyframes pulse-glow {
+    0%   { transform: scale(1);   opacity: 1;   }
+    60%  { transform: scale(2.4); opacity: 0;   }
+    100% { transform: scale(2.4); opacity: 0;   }
+}
+
+.pulse-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    position: relative;
+}
+
+.pulse-dot.active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: inherit;
+    animation: pulse-glow 4s ease-out infinite;
+}
+
+/* ── Section label ───────────────────────────────────────────────── */
+.hq-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: #555;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+/* ── HW metric row ───────────────────────────────────────────────── */
+.hw-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+
+.hw-bar-track {
+    width: 100%;
+    height: 4px;
+    background: #2A2A2A;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 3px;
+}
+
+.hw-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+
+/* ── 玻璃拟态 Glassmorphism ──────────────────────────────────────────── */
+/* 面板的半透明 + 景深感由 Python 侧 inline style 注入，此处补 hover 光晕 */
+[class*="depth-panel"], .site-card {
+    transition: box-shadow 0.35s ease;
+}
+.site-card:hover {
+    box-shadow: 0 0 12px rgba(0, 242, 255, 0.08);
+}
+
+/* ── 里程表区域脉冲光晕 ───────────────────────────────────────────────── */
+@keyframes odo-pulse {
+    0%, 100% { box-shadow: 0 0 16px rgba(57, 255, 20, 0.07); }
+    50%       { box-shadow: 0 0 38px rgba(57, 255, 20, 0.20); }
+}
+
+.odo-area {
+    border-radius: 6px;
+    padding: 8px 4px 4px;
+    animation: odo-pulse 4s ease-in-out infinite;
+}
+
+/* ── 数字入账瞬闪（由 JS/CSS 触发，持续 0.5s）──────────────────────── */
+@keyframes odo-ingest {
+    0%   { background: rgba(57, 255, 20, 0.22); }
+    40%  { background: rgba(57, 255, 20, 0.08); }
+    100% { background: transparent; }
+}
+.odo-ingest {
+    animation: odo-ingest 0.5s ease-out forwards;
+    border-radius: 6px;
+}
+
+/* ── 十六进制数据流（底层原始字节）─────────────────────────────────── */
+@keyframes hex-scroll {
+    0%   { transform: translateX(0%); }
+    100% { transform: translateX(-50%); }
+}
+
+.hex-stream-outer {
+    overflow: hidden;
+    width: 100%;
+    height: 14px;
+    margin-top: 8px;
+    opacity: 0.22;
+    pointer-events: none;
+}
+
+.hex-stream {
+    display: inline-block;
+    white-space: nowrap;
+    font-size: 7px;
+    color: #39FF14;
+    letter-spacing: 2.5px;
+    font-family: 'JetBrains Mono', monospace;
+    animation: hex-scroll 6s linear infinite;
+}
+
+/* ── 活跃站点冲击波（Active site card 左边框光晕扩散）────────────────── */
+@keyframes site-shockwave {
+    0%   { box-shadow: -3px 0 0 0  rgba(57, 255, 20, 0.9), 0 0 0 rgba(57,255,20,0); }
+    70%  { box-shadow: -3px 0 0 0  rgba(57, 255, 20, 0.5), 0 0 16px rgba(57,255,20,0.12); }
+    100% { box-shadow: -3px 0 0 0  rgba(57, 255, 20, 0.9), 0 0 0 rgba(57,255,20,0); }
+}
+
+.site-card.active-site {
+    animation: site-shockwave 4s ease-in-out infinite;
+}
+
+/* ── 状态栏文字干扰 (工业瑕疵感)──────────────────────────────────────── */
+@keyframes text-glitch {
+    0%, 86%, 100% { transform: translateX(0); }
+    88%            { transform: translateX(1px);  }
+    90%            { transform: translateX(-1px); }
+    92%            { transform: translateX(0.5px); }
+    94%            { transform: translateX(0); }
+}
+
+#hq-status-bar {
+    animation: text-glitch 9s linear infinite;
+}
+
+#status-bar {
+    animation: text-glitch 11s linear infinite;
+}
+
+/* ── CPU Sparkline 容器 ───────────────────────────────────────────────── */
+.cpu-spark-wrap {
+    margin-top: 10px;
+    border-top: 0.8px solid rgba(255, 255, 255, 0.06);
+    padding-top: 6px;
+}
+
+/* ── 彗星头部辉光（Plotly marker 无法直接 CSS，此处为备用装饰）────────── */
+.comet-glow {
+    filter: blur(1.5px);
+    box-shadow: 0 0 10px #00F2FF, 0 0 24px rgba(0, 242, 255, 0.35);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   赛博美学补丁 — Cyber Aesthetic Patch
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 极细全局边框（覆盖 inline style，仅补充分割线）──────────────────── */
+.hw-bar-track {
+    border: 0.8px solid rgba(255, 255, 255, 0.04);
+}
+
+/* ── 地图链路脉冲（map-link-pulse：弧线 opacity 呼吸，4s 同频）────────── */
+@keyframes map-link-pulse {
+    0%, 100% { opacity: 0.30; }
+    50%       { opacity: 0.55; }
+}
+
+/* Plotly 渲染 geo 轨迹为 SVG path，通过容器动画近似链路脉冲 */
+#hq-world-map .js-plotly-plot {
+    animation: map-link-pulse 4s ease-in-out infinite;
+}
+
+/* ── 传感器数据抓取特效（非线性加载感）─────────────────────────────────
+   各仪表盘错开 delay，模拟独立传感器轮询，视觉上永不同步 */
+@keyframes sensor-grab {
+    0%, 86%, 100% { filter: none;                                       opacity: 1;   }
+    88%            { filter: brightness(1.9) blur(0.4px);               opacity: 0.65; }
+    90%            { filter: hue-rotate(12deg) brightness(1.4);         opacity: 0.85; }
+    92%            { filter: none;                                       opacity: 1;   }
+    94%            { filter: brightness(1.25) saturate(1.5);            opacity: 0.90; }
+    96%            { filter: none;                                       opacity: 1;   }
+}
+
+#hq-gauge-conf    { animation: sensor-grab 4s ease-in-out 0.0s infinite; }
+#hq-gauge-clarity { animation: sensor-grab 4s ease-in-out 1.3s infinite; }
+#hq-gauge-iou     { animation: sensor-grab 4s ease-in-out 2.6s infinite; }
+
+/* ── 全局景深层次（z-index + 不同模糊半径）──────────────────────────────
+   dp-bg  最远层：地图背景，最大模糊（物体远→边缘更模糊）
+   dp-mid 中间层：拓扑/存储/计算
+   dp-fg  最近层：仪表盘，最清晰，边框最亮 */
+
+.dp-bg {
+    position: relative;
+    z-index: 1;
+    backdrop-filter:         blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+}
+
+.dp-mid {
+    position: relative;
+    z-index: 2;
+    backdrop-filter:         blur(6px) !important;
+    -webkit-backdrop-filter: blur(6px) !important;
+}
+
+.dp-fg {
+    position: relative;
+    z-index: 3;
+    backdrop-filter:         blur(3px) !important;
+    -webkit-backdrop-filter: blur(3px) !important;
+    border-color:            rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.45),
+                inset 0 1px 0 rgba(255,255,255,0.06),
+                0 0 0 0.5px rgba(0, 242, 255, 0.06) !important;
+}
+
+/* ── 呼吸同步校准（所有发光周期统一 4s）──────────────────────────────── */
+/* 覆盖先前的 text-glitch 频率，与呼吸同频对齐 */
+#hq-status-bar { animation-duration: 8s; }   /* 2 呼吸周期 */
+#status-bar     { animation-duration: 12s; }  /* 3 呼吸周期 */
+
+/* 标题 ICE 边框微呼吸 */
+@keyframes title-border-breathe {
+    0%, 100% { border-bottom-color: rgba(0, 242, 255, 0.85); }
+    50%       { border-bottom-color: rgba(0, 242, 255, 0.40); }
+}
+/* 选中 HQ 标题分割线 */
+#hq-status-bar ~ * { }   /* 占位，实际通过 parent div style 实现 */
