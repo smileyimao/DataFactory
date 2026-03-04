@@ -173,9 +173,10 @@ def _acquire_loop(source, target_fps: float) -> None:
 
 app = dash.Dash(
     __name__,
-    title      = "SENTINEL-1",
-    update_title = None,
+    title         = "SENTINEL-1",
+    update_title  = None,
     suppress_callback_exceptions = True,
+    assets_folder = os.path.join(_SCRIPT_DIR, "assets"),  # 显式指定，与 hq.py 共享 CSS
 )
 app.layout = _L.build_layout()
 

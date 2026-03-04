@@ -1,14 +1,120 @@
 services:
+
+  # ─── PostgreSQL 数据库 ────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: datafactory
-      POSTGRES_USER: datafactory
+      POSTGRES_DB:       datafactory
+      POSTGRES_USER:     datafactory
       POSTGRES_PASSWORD: datafactory
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datafactory"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Pipeline：Guard 模式持续监控 storage/raw/ ───────────────────────────
+  # 手动运行单次：docker compose run --rm pipeline python main.py
+  pipeline:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env                    # DATABASE_URL / OPENWEATHER_API_KEY 等
+    environment:
+      DATABASE_URL: postgresql://datafactory:datafactory@postgres:5432/datafactory
+      MPLBACKEND:   Agg
+    volumes:
+      - ./storage:/app/storage        # 归档/原始数据持久化
+      - ./logs:/app/logs
+      - ./models:/app/models          # YOLO .pt 模型文件（只读挂载也可）
+      - ./config/settings.yaml:/app/config/settings.yaml:ro
+    command: ["python", "main.py", "--guard"]
+
+  # ─── SENTINEL-1 遥测看板 ──────────────────────────────────────────────────
+  sentinel:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://datafactory:datafactory@postgres:5432/datafactory
+    ports:
+      - "8766:8766"
+    volumes:
+      - ./storage:/app/storage:ro     # 读取 archive 帧（--source archive 时）
+      - ./config/settings.yaml:/app/config/settings.yaml:ro
+    command: ["python", "dashboard/sentinel.py", "--source", "mock", "--port", "8766"]
+
+  # ─── HQ Global Command Center ─────────────────────────────────────────────
+  hq:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://datafactory:datafactory@postgres:5432/datafactory
+    ports:
+      - "8767:8767"
+    volumes:
+      - ./config/settings.yaml:/app/config/settings.yaml:ro
+    command: ["python", "dashboard/hq.py", "--port", "8767"]
+
+  # ─── Review Dashboard（review.mode=dashboard 时启用）─────────────────────
+  # 默认不启动；需要时：docker compose --profile review up review
+  review:
+    build: .
+    profiles: ["review"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://datafactory:datafactory@postgres:5432/datafactory
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./storage:/app/storage:ro
+      - ./config/settings.yaml:/app/config/settings.yaml:ro
+    command: ["python", "dashboard/app.py"]
+
+  # ─── MLflow 实验跟踪 UI ────────────────────────────────────────────────────
+  # 默认不启动；需要时：docker compose --profile mlflow up mlflow
+  mlflow:
+    build: .
+    profiles: ["mlflow"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MLFLOW_BACKEND_URI: postgresql://datafactory:datafactory@postgres:5432/mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow_artifacts:/app/mlflow_artifacts
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - postgresql://datafactory:datafactory@postgres:5432/mlflow
+      - --default-artifact-root
+      - /app/mlflow_artifacts
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "5000"
 
 volumes:
   postgres_data:
