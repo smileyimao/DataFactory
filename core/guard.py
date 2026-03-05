@@ -1,9 +1,11 @@
 # core/guard.py — 持续监控 raw 目录，新视频落地即凑批送厂
 # Watchdog 事件监听 + 轮询兜底（macOS 上 Finder 复制、iCloud 同步等可能漏检）。
+import json
 import os
 import time
 import threading
 import logging
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -91,28 +93,29 @@ class VideoFolderHandler(FileSystemEventHandler):
         self._stable_min = self._cfg.get("ingest", {}).get("file_stable_min_seconds", 2)
 
     def _flush_batch(self):
-        with self._lock:
-            if self._processing:
-                self._pending_flush = True
-                logger.info("产线加工中，新物料已登记，本批结束后将自动再扫")
-                return
-            paths = _list_raw_media(self._cfg)
-            if not paths:
-                return
-            self._processing = True
-        try:
-            print(f"\n📡 [保安报告] 本批共 {len(paths)} 个物料，送入工厂...")
-            logger.info("批处理: 本批 %d 个文件送入工厂", len(paths))
-            pipeline.run_smart_factory(cfg=self._cfg, video_paths=paths)
-        finally:
+        while True:
             with self._lock:
-                self._processing = False
-                need_retry = self._pending_flush
-                self._pending_flush = False
-            if need_retry:
-                print("\n📡 [保安报告] 产线加工期间有新物料写入，立即再扫 raw 目录...")
-                logger.info("产线加工期间有新物料，立即再扫 raw 目录")
-                self._flush_batch()
+                if self._processing:
+                    self._pending_flush = True
+                    logger.info("产线加工中，新物料已登记，本批结束后将自动再扫")
+                    return
+                paths = _list_raw_media(self._cfg)
+                if not paths:
+                    return
+                self._processing = True
+            try:
+                print(f"\n📡 [保安报告] 本批共 {len(paths)} 个物料，送入工厂...")
+                logger.info("批处理: 本批 %d 个文件送入工厂", len(paths))
+                pipeline.run_smart_factory(cfg=self._cfg, video_paths=paths)
+            finally:
+                with self._lock:
+                    self._processing = False
+                    need_retry = self._pending_flush
+                    self._pending_flush = False
+            if not need_retry:
+                break
+            print("\n📡 [保安报告] 产线加工期间有新物料写入，立即再扫 raw 目录...")
+            logger.info("产线加工期间有新物料，立即再扫 raw 目录")
         print(f"\n{'=' * 50}\n🛡️  保安继续巡逻中...")
 
     def on_created(self, event):
@@ -134,6 +137,46 @@ class VideoFolderHandler(FileSystemEventHandler):
                 _handle_new_file(self, dest)
         except ValueError:
             pass
+
+
+def _start_health_server(port: int, start_time: float) -> None:
+    """
+    启动轻量 HTTP /health 端点（守护线程），供 Kubernetes liveness probe 或监控系统使用。
+    GET /health → 200 JSON {"status": "ok", "uptime_sec": N}
+    端口通过 ingest.health_port 配置，0 或未配置则不启动。
+    """
+    if not port:
+        return
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.path == "/health":
+                body = json.dumps(
+                    {"status": "ok", "uptime_sec": round(time.time() - start_time, 1)},
+                    ensure_ascii=False,
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, fmt, *args):  # 静默 access log
+            pass
+
+    def _serve():
+        try:
+            srv = HTTPServer(("0.0.0.0", port), _Handler)
+            srv.serve_forever()
+        except Exception as e:
+            logger.warning("健康检查端点启动失败 (port=%s): %s", port, e)
+
+    t = threading.Thread(target=_serve, daemon=True, name="guard_health")
+    t.start()
+    logger.info("健康检查端点已启动: http://0.0.0.0:%s/health", port)
 
 
 def _poll_loop(handler: "VideoFolderHandler", interval: float, stop_event: threading.Event) -> None:
@@ -164,6 +207,9 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     if not os.path.exists(watch_path):
         os.makedirs(watch_path)
     config_loader.init_storage_from_config(cfg)
+    _guard_start_time = time.time()
+    health_port = cfg.get("ingest", {}).get("health_port", 0)
+    _start_health_server(health_port, _guard_start_time)
     startup_scan(cfg)
     print("🚀 [DataFactory 自动工厂启动]")
     print(f"📍 监控路径: {os.path.abspath(watch_path)}")

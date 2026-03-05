@@ -156,11 +156,21 @@ class TestConnect:
             os.unlink(path)
 
     def test_pg_delegates_to_psycopg2(self):
-        """PostgreSQL URL 时调用 psycopg2.connect，不实际建连接。"""
-        mock_conn = MagicMock()
-        with patch.dict("sys.modules", {"psycopg2": MagicMock(connect=MagicMock(return_value=mock_conn))}):
-            import importlib
-            import db.db_connection as dbc2
+        """PostgreSQL URL 时通过连接池取连接，不实际建 TCP 连接。"""
+        import importlib
+        import db.db_connection as dbc2
+
+        mock_raw_conn = MagicMock()
+        mock_pool = MagicMock()
+        mock_pool.getconn.return_value = mock_raw_conn
+
+        mock_psycopg2 = MagicMock()
+        mock_psycopg2.pool.ThreadedConnectionPool.return_value = mock_pool
+
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2, "psycopg2.pool": mock_psycopg2.pool}):
             importlib.reload(dbc2)
             conn = dbc2.connect("postgresql://user:pass@localhost/db")
-        assert conn is mock_conn
+
+        # conn 是 _PooledConn 包装器，底层持有 mock_raw_conn
+        assert conn._conn is mock_raw_conn
+        mock_pool.getconn.assert_called_once()

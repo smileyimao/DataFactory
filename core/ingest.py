@@ -4,7 +4,9 @@ import os
 import logging
 from typing import List, Optional, Tuple
 
-from utils import file_tools, fingerprinter, db_tools, retry_utils, modality_handlers
+from utils import file_tools, fingerprinter, retry_utils
+from db import db_tools
+from vision import modality_handlers
 from config import config_loader
 
 logger = logging.getLogger(__name__)

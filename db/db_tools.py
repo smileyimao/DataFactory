@@ -127,6 +127,11 @@ def record_production(
     sync_id: Optional[str] = None,
 ) -> bool:
     """写入一条生产记录。成功返回 True，失败记录日志并返回 False。"""
+    if not db_url:
+        return False
+    if not db_connection.is_postgres(db_url) and not os.path.isfile(os.path.abspath(db_url)):
+        logger.warning("record_production: SQLite 文件不存在 %s，DB 尚未初始化，跳过写入", db_url)
+        return False
     if created_at is None:
         from utils import time_utils
         created_at = time_utils.now_toronto().strftime("%Y-%m-%d %H:%M:%S")
@@ -162,6 +167,11 @@ def record_batch_metrics(
     files_per_hour: float,
 ) -> bool:
     """写入一批次的处理指标。成功返回 True，失败记录日志并返回 False。"""
+    if not db_url:
+        return False
+    if not db_connection.is_postgres(db_url) and not os.path.isfile(os.path.abspath(db_url)):
+        logger.warning("record_batch_metrics: SQLite 文件不存在 %s，DB 尚未初始化，跳过写入", db_url)
+        return False
     try:
         conn = db_connection.connect(db_url)
         cur = conn.cursor()

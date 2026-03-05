@@ -1,7 +1,9 @@
-# utils/logging.py — 应用日志配置（P1 时区+轮转配置驱动）
+# utils/logging.py — 应用日志配置（P1 时区+轮转配置驱动；P2 结构化 JSON 日志）
+import json
 import logging
 import logging.handlers
 import os
+import time
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -13,6 +15,39 @@ def _get_tz(cfg: Optional[Dict[str, Any]] = None) -> str:
     if cfg:
         return cfg.get("timezone", "America/Toronto")
     return "America/Toronto"
+
+
+class JsonFormatter(logging.Formatter):
+    """
+    结构化 JSON 日志格式（P2-12）。
+    每条日志输出一行 JSON，包含 ts / level / logger / msg，异常时追加 exc 字段。
+    启用方式（任选其一）：
+      - 环境变量：DATAFACTORY_LOG_FORMAT=json
+      - 配置项：  logging.format: json
+    """
+
+    def __init__(self, tz: str = "America/Toronto"):
+        super().__init__()
+        self._tz = tz
+
+    def format(self, record: logging.LogRecord) -> str:
+        doc: Dict[str, Any] = {
+            "ts": self._fmt_time(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            doc["exc"] = self.formatException(record.exc_info)
+        return json.dumps(doc, ensure_ascii=False)
+
+    def _fmt_time(self, record: logging.LogRecord) -> str:
+        try:
+            from zoneinfo import ZoneInfo
+            ct = datetime.fromtimestamp(record.created, tz=ZoneInfo(self._tz))
+        except Exception:
+            ct = datetime.fromtimestamp(record.created)
+        return ct.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 class _TZFormatter(logging.Formatter):
@@ -61,5 +96,9 @@ def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None) -> None:
         log_file, encoding="utf-8", maxBytes=max_bytes, backupCount=backup_count
     )
     fh.setLevel(logging.INFO)
-    fh.setFormatter(_TZFormatter(tz, "[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s"))
+    log_fmt = lg_cfg.get("format", os.environ.get("DATAFACTORY_LOG_FORMAT", "text")).lower()
+    if log_fmt == "json":
+        fh.setFormatter(JsonFormatter(tz))
+    else:
+        fh.setFormatter(_TZFormatter(tz, "[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s"))
     root.addHandler(fh)

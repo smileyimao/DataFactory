@@ -167,6 +167,23 @@ def run_smart_factory(
     if gate_val is not None:
         cfg.setdefault("production_setting", {})["pass_rate_gate"] = float(gate_val)
 
+    try:
+        _run_pipeline(cfg, video_paths, gate_val)
+    except Exception as e:
+        logger.exception("Pipeline 意外崩溃: %s", e)
+        try:
+            metrics.inc("batch_failed_total")
+        except Exception:
+            pass
+        raise
+
+
+def _run_pipeline(
+    cfg: dict,
+    video_paths: Optional[List[str]],
+    gate_val: Optional[float],
+) -> None:
+    """实际流程实现，由 run_smart_factory 包裹顶层异常捕获后调用。"""
     modality = modality_handlers.get_modality(cfg)
     if modality not in ("video", "image"):
         print(f"❌ 当前仅支持 modality=video/image，config 中 modality={modality} 将在 v3 实现（audio/vibration）。")

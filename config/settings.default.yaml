@@ -143,6 +143,7 @@ labeled_return:
   consistency_threshold: 0
   alert_via_email: true
   skip_empty_labels: true
+  alert_threshold_step: 0.05
 
 
 # ── §7 模型训练与追踪 ──────────────────────────────────────────────────────────

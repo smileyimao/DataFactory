@@ -1,21 +1,24 @@
 # config/config_loader.py — 统一配置加载，路径解析为绝对路径
 # 工业级：path decoupling，所有路径/目录名从配置读取，支持 env 覆盖
 import os
+import threading
 import yaml
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils import file_tools
 
 _DEFAULT_BASE_DIR: Optional[str] = None
+_base_dir_lock = threading.Lock()  # 保护 _DEFAULT_BASE_DIR 并发读写
 
 # 环境变量覆盖前缀（如 DATA_WAREHOUSE 覆盖 paths.data_warehouse）
 _ENV_PREFIX = "DATAFACTORY_"
 
 
 def set_base_dir(path: str) -> None:
-    """设置项目根目录，用于解析相对路径。"""
+    """设置项目根目录，用于解析相对路径。线程安全。"""
     global _DEFAULT_BASE_DIR
-    _DEFAULT_BASE_DIR = os.path.abspath(path)
+    with _base_dir_lock:
+        _DEFAULT_BASE_DIR = os.path.abspath(path)
 
 
 def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
@@ -43,9 +46,10 @@ def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any]
 
 
 def get_base_dir() -> str:
-    """获取当前设定的项目根目录；未设置时使用调用方文件所在目录的上一级（项目根）。"""
-    if _DEFAULT_BASE_DIR:
-        return _DEFAULT_BASE_DIR
+    """获取当前设定的项目根目录；未设置时使用调用方文件所在目录的上一级（项目根）。线程安全。"""
+    with _base_dir_lock:
+        if _DEFAULT_BASE_DIR:
+            return _DEFAULT_BASE_DIR
     # 默认：config/ 的父目录为项目根
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -156,6 +160,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     ec.setdefault("retry_delay_seconds", 5)
     # Inject db_url from DATABASE_URL env var
     data["paths"]["db_url"] = os.environ.get("DATABASE_URL", "").strip()
+    # P2-10: env override for quality_thresholds 和 production_setting
+    # 放在所有 setdefault 之后，确保即使 YAML 未配置某节也能被 env 覆盖
+    _apply_section_env_overrides(data.get("quality_thresholds", {}), "QT")
+    _apply_section_env_overrides(data.get("production_setting", {}), "PS")
     return data
 
 
@@ -168,6 +176,40 @@ def _apply_env_overrides(paths: Dict[str, Any]) -> None:
         val = os.environ.get(env_key)
         if val is not None:
             paths[key] = val
+
+
+def _apply_section_env_overrides(section: Dict[str, Any], section_prefix: str) -> None:
+    """
+    对 quality_thresholds / production_setting 等扁平节应用 env 覆盖，自动保留原始类型。
+    命名规则：DATAFACTORY_{SECTION_PREFIX}__{KEY}（双下划线分隔节与键）。
+    示例：
+      DATAFACTORY_QT__MIN_BRIGHTNESS=50   → quality_thresholds.min_brightness = 50.0
+      DATAFACTORY_PS__PASS_RATE_GATE=90   → production_setting.pass_rate_gate  = 90.0
+    """
+    for key in list(section.keys()):
+        orig = section[key]
+        # 只覆盖标量（字符串 / 数字 / 布尔 / None）；嵌套 dict/list 跳过
+        if isinstance(orig, (dict, list)):
+            continue
+        env_key = _ENV_PREFIX + section_prefix + "__" + key.upper().replace(".", "_")
+        val = os.environ.get(env_key)
+        if val is None:
+            continue
+        # 按原始类型强制转换
+        if isinstance(orig, bool):
+            section[key] = val.lower() in ("true", "1", "yes")
+        elif isinstance(orig, int):
+            try:
+                section[key] = int(val)
+            except ValueError:
+                section[key] = val
+        elif isinstance(orig, float):
+            try:
+                section[key] = float(val)
+            except ValueError:
+                section[key] = val
+        else:
+            section[key] = val
 
 
 def get_batch_paths(cfg: Dict[str, Any], batch_base: str) -> Dict[str, str]:

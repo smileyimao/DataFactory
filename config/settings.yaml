@@ -73,6 +73,7 @@ ingest:
   file_stable_check_interval: 1  # 稳定性检查间隔（秒）
   file_stable_min_seconds: 2     # 文件大小不变持续此秒数才视为稳定
   poll_interval_seconds: 30      # 轮询兜底周期（Watchdog 漏检时补救，0=关闭）
+  health_port: 0                 # Guard 模式健康检查端口（0=不启动；建议 8766）
 
   video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
   image_extensions: [".jpg", ".jpeg", ".png"]
@@ -173,6 +174,7 @@ labeled_return:
   consistency_threshold: 0      # IoU 一致率门槛；0=仅记录不报警
   alert_via_email: true         # 一致率不达标时发邮件报警
   skip_empty_labels: true       # 并入训练集时跳过无标注图（减少冗余）
+  alert_threshold_step: 0.05    # Refinery 抽检报警邮件中，建议提高置信阈值的步长
 
 
 # ── §7 模型训练与追踪 ──────────────────────────────────────────────────────────

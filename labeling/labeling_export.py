@@ -361,8 +361,10 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
                 "batch_id": batch_id,
             })
     if added > 0 or refinery_added > 0:
-        with open(manifest_path, "w", encoding="utf-8") as f:
+        tmp_path = manifest_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, manifest_path)  # 原子替换，崩溃不产生损坏文件
         if added > 0:
             logger.info("待标池: inspection 追加 %d 条 -> %s", added, manifest_path)
         if refinery_added > 0:
