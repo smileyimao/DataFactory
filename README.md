@@ -16,12 +16,12 @@ Industrial video pipeline: **raw material → Ingest (pre-filter) → Funnel QC 
 
 | Item | Status |
 |------|--------|
-| **Version** | v3.1 (CVAT 本地闭环 + YOLO 训练 + MLflow 注册 全链路打通) |
+| **Version** | v3.5 — Production-hardened: P0–P3 engineering quality + domain-driven package structure |
 | **Main flow** | Ingest → Funnel QC → Admission → Archive → CVAT export → human label → pull annotations → YOLO train → MLflow Registry |
 | **Archive structure** | `Batch_xxx/` with reports, source, refinery, inspection, labeled (labeled return write-back) |
 | **Storage** | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training, train_runs |
 | **Closed loop** | `main.py --auto-cvat` → CVAT Task → label → `cvat_pull_annotations.py` → `train_model.py` → `models:/vehicle_detector/N` |
-| **Next target** | v3.x: Auto-modality routing (audio/lidar/vibration); Edge deployment |
+| **Next target** | v3.6: Refinery labeling pool stratified sampling + IoU consistency alert |
 
 ---
 
@@ -103,13 +103,17 @@ For readers familiar with industrial / MLOps terminology, the design maps as fol
 | **v2.10** | Image 通路、auto-modality、raw 递归扫描、qualified 置信度分流、YOLO 复用 | ✅ |
 | **v3.0** | **Model-ready**: batch_lineage、label_import 血缘表；query_lineage.py；MLflow run params 含 refinery/inspection 路径；vision.model_path 支持 models:/name/version；register_model.py | ✅ |
 | **v3.1** | **Full closed loop**: local CVAT Docker deployment; `cvat_pull_annotations.py` (CVAT XML → YOLO, IoU consistency check, merge to training); `train_model.py` (YOLOv8 train, MLflow pyfunc register, model_train lineage); `main.py --auto-cvat` end-to-end | ✅ |
+| **v3.2** | **SQLite → PostgreSQL**: thin adapter layer (`db/db_connection.py`), `DATABASE_URL` env var, `docker-compose.yml` PG16, idempotent migration script | ✅ |
+| **v3.3** | **Package cleanup**: `utils/` (logging, startup, fingerprinter, retry, file_tools, notifier, time_utils); `scripts/` reorganized into `cvat/` `mlflow/` `db/`; P0 disk protection | ✅ |
+| **v3.4** | **Domain-driven structure**: `engines/` split into `db/` (db_connection, db_tools), `vision/` (detector, quality, motion, frame_io, production_tools), `labeling/` (export, return, upload) | ✅ |
+| **v3.5** | **P0–P3 production hardening**: pipeline top-level exception capture; atomic manifest write; guard recursion → loop; SQLite guard; threading.Lock on global config; qc_engine SRP (8 sub-functions); PG `ThreadedConnectionPool`; `DATAFACTORY_QT__*` / `DATAFACTORY_PS__*` env override; JSON structured logging; `/health` endpoint (guard mode) | ✅ |
 | **v4** | Multimodal, FFT, Edge, multi-node, access control | Design done, pending implementation |
 
 ---
 
 ## Version overview
 
-Current code covers **v1.x** through **v3.1** (CVAT 本地闭环 + YOLO 训练 + MLflow 全链路). Next target: **v3.x** (Auto-modality routing: audio/lidar/vibration; Edge deployment).
+Current code covers **v1.x** through **v3.5** (production-hardened, domain-driven package structure, full closed loop). Next target: **v3.6** (Refinery labeling pool stratified sampling + IoU consistency alert).
 
 ### v1.x — Production pipeline
 
@@ -195,18 +199,23 @@ See **docs/path_decoupling.md**, **docs/industrial_standards.md**; CHANGELOG: **
 
 | Layer | Path | Description |
 |-------|------|-------------|
-| Entry | `main.py` | Single run or **Headless & Guard mode** (`--guard`: Watchdog + polling fallback) |
-| Modality | `engines/modality_handlers.py` | decode_check dispatched by modality; v2.9 decoupled, v3 extends audio/vibration |
-| Flow | `core/` | pipeline → ingest → qc_engine → reviewer → archiver; time_utils (timezone) |
-| Engines | `engines/` | quality_tools, fingerprinter, db_tools, report_tools, production_tools, notifier, vision_detector, motion_filter, frame_io, retry_utils, metrics, labeling_export, labeled_return |
-| Config | `config/` | settings.yaml, config_loader; paths and thresholds |
-| Models | `models/` | YOLO and cascade .pt; vision.model_path config |
-| Storage | `storage/` | raw, archive, rejected, redundant, quarantine, test, reports, for_labeling, labeled_return, training, **train_runs** |
-| DB | `db/` | factory_admin.db (production_history, batch_metrics, batch_lineage, label_import, **model_train**), mlflow.db (MLflow experiments, model registry) |
-| Docs | `docs/` | Roadmap, architecture, settings, smart_slicing, **architecture_mindmap** |
-| Scripts | `scripts/` | reset_factory, export_for_labeling, import_labeled_return, compare_models, **cvat_pull_annotations**, **train_model**, query_lineage, register_model |
-| Tests | `tests/` | unit, integration, e2e (smoke, main --test, guard), api |
-| Legacy | `legacy/` | Old entry scripts, kept for reference |
+| Entry | `main.py` | Single run or **Headless & Guard mode** (`--guard`: Watchdog + polling fallback + `/health` endpoint) |
+| Flow | `core/` | pipeline → ingest → qc_engine (SRP) → reviewer → archiver; guard (Watchdog) |
+| Database | `db/` | `db_connection.py` (SQLite/PG thin adapter + ThreadedConnectionPool); `db_tools.py` (all DB ops) |
+| Vision | `vision/` | vision_detector, quality_tools, motion_filter, frame_io, modality_handlers, production_tools, model_registry |
+| Labeling | `labeling/` | labeling_export, labeled_return, annotation_upload |
+| Utils | `utils/` | logging (+ JsonFormatter), startup, fingerprinter, retry_utils, file_tools, notifier, time_utils, report_tools, metrics |
+| Config | `config/` | settings.yaml, config_loader (env override: `DATAFACTORY_*`, `DATAFACTORY_QT__*`, `DATAFACTORY_PS__*`) |
+| Models | `models/` | YOLO and cascade .pt; vision.model_path supports `models:/name/version` |
+| Storage | `storage/` | raw, archive, rejected, redundant, quarantine, test, reports, for_labeling, labeled_return, training |
+| DB files | `db/` (data) | PostgreSQL (prod) or `factory_admin.db` SQLite (dev); tables: production_history, batch_metrics, batch_lineage, label_import, model_train |
+| Docs | `docs/` | Roadmap, DataFactory.png (architecture), OnePager |
+| Scripts | `scripts/cvat/` | cvat_api, cvat_pull_annotations, cvat_setup_labels, cvat_upload_annotations |
+| Scripts | `scripts/mlflow/` | train_model, compare_models, register_model, download_models |
+| Scripts | `scripts/db/` | migrate_sqlite_to_pg |
+| Scripts | `scripts/` | reset_factory, query_lineage, import_labeled_return |
+| Experiments | `experiments/` | count_vehicles_track (research / one-off) |
+| Tests | `tests/unit/` | 113 passing; covers db, config, labeling, vision, utils |
 
 See **docs/architecture.md**, **docs/architecture_mindmap.md** (architecture skeleton), **docs/settings_guide.md**; **ROOT_LAYOUT.md** for directory layout.
 
@@ -224,7 +233,11 @@ See **docs/architecture.md**, **docs/architecture_mindmap.md** (architecture ske
 - **v2.10**: Done. Image 通路、auto-modality、raw 递归扫描、qualified 按 YOLO 置信度分流、YOLO 复用消除二次推理。
 - **v3.0**: Done. **Model-ready**: batch_lineage, label_import tables, query_lineage.py, MLflow traceability, register_model.py.
 - **v3.1**: Done. **Full closed loop**: local CVAT Docker, cvat_pull_annotations.py (CVAT XML → YOLO + IoU check), train_model.py (YOLOv8 + MLflow pyfunc register + model_train lineage), main.py --auto-cvat.
-- **v3.x**: Next. Auto-modality routing (audio/lidar/vibration); Edge deployment hardening.
+- **v3.2**: Done. **SQLite → PostgreSQL**: thin adapter, DATABASE_URL env var, docker-compose PG16, migration script.
+- **v3.3**: Done. **Package cleanup**: utils/ extracted; scripts/ reorganized (cvat/, mlflow/, db/); P0 disk protection.
+- **v3.4**: Done. **Domain-driven structure**: engines/ → db/ + vision/ + labeling/.
+- **v3.5**: Done. **P0–P3 production hardening**: exception capture, atomic writes, recursion fix, SQLite guard, thread safety, SRP, PG connection pool, env override, JSON logging, /health endpoint.
+- **v3.6**: Next. Refinery labeling pool stratified sampling + IoU consistency alert + configurable threshold step.
 - **v4.x**: Design done, pending implementation. **Scale & extension**: multimodal, Temporal Sync (observed_at), Resource Locking (Edge), FFT, Edge, multi-node, access control.
 
 See **docs/Roadmap.md**.
