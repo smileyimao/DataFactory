@@ -1,7 +1,10 @@
 # tests/unit/test_property_based.py
 """Property-based：随机配置下 validate_config 与路径解析的不变性。"""
 import pytest
-from hypothesis import given, strategies as st
+
+hypothesis = pytest.importorskip("hypothesis", reason="hypothesis 未安装，跳过属性测试")
+given = hypothesis.given
+st = hypothesis.strategies
 
 pytestmark = pytest.mark.unit
 

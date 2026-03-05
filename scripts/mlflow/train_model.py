@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scripts/train_model.py — 从 storage/training/ 训练 YOLO，注册到 MLflow Model Registry
+# scripts/mlflow/train_model.py — 从 storage/training/ 训练 YOLO，注册到 MLflow Model Registry
 """
 labeled_return 并入数据后，运行此脚本完成完整闭环：
 
@@ -8,11 +8,11 @@ labeled_return 并入数据后，运行此脚本完成完整闭环：
     → DB model_train 血缘 (可用 query_lineage.py --train-id 查询)
 
 用法:
-  python scripts/train_model.py                           # 用全部 training 数据
-  python scripts/train_model.py --epochs 100              # 指定轮数
-  python scripts/train_model.py --model yolov8m.pt        # 指定基础模型
-  python scripts/train_model.py --import-id Import_xxx    # 只用指定标注批次
-  python scripts/train_model.py --dry-run                 # 统计数据集，不实际训练
+  python scripts/mlflow/train_model.py                           # 用全部 training 数据
+  python scripts/mlflow/train_model.py --epochs 100              # 指定轮数
+  python scripts/mlflow/train_model.py --model yolov8m.pt        # 指定基础模型
+  python scripts/mlflow/train_model.py --import-id Import_xxx    # 只用指定标注批次
+  python scripts/mlflow/train_model.py --dry-run                 # 统计数据集，不实际训练
 
 训练完成后更新 config/settings.yaml:
   vision:
@@ -317,10 +317,10 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例:\n"
-            "  python scripts/train_model.py\n"
-            "  python scripts/train_model.py --epochs 100 --model yolov8m.pt\n"
-            "  python scripts/train_model.py --import-id Import_20260228_120000\n"
-            "  python scripts/train_model.py --dry-run\n"
+            "  python scripts/mlflow/train_model.py\n"
+            "  python scripts/mlflow/train_model.py --epochs 100 --model yolov8m.pt\n"
+            "  python scripts/mlflow/train_model.py --import-id Import_20260228_120000\n"
+            "  python scripts/mlflow/train_model.py --dry-run\n"
         ),
     )
     parser.add_argument("--epochs",     type=int,   default=50,

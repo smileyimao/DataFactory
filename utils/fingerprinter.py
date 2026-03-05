@@ -1,4 +1,4 @@
-# engines/fingerprinter.py — MD5 指纹，只干活不决策（P1：异常打日志，不吞）
+# utils/fingerprinter.py — MD5 指纹，只干活不决策（P1：异常打日志，不吞）
 import hashlib
 import logging
 import os

@@ -1,4 +1,4 @@
-# config/startup.py — 开机自检与滚动清零，提升 edge 部署稳定性
+# utils/startup.py — 开机自检与滚动清零，提升 edge 部署稳定性
 """
 开机自检：校验配置与关键目录可写，失败则打日志并返回 False，由 main 决定是否退出。
 黄金库自检：可选用 paths.golden 下视频真跑一遍 QC，确保 pipeline 能跑通（edge 建议开启）。
@@ -169,6 +169,77 @@ def _list_dirs_older_than(dir_path: str, days: float, prefix: str = "") -> List[
         except OSError:
             continue
     return out
+
+
+def run_disk_check(cfg: Dict[str, Any]) -> None:
+    """
+    磁盘用量检查：对关键目录检测剩余空间，超阈值写日志并发邮件。
+    disk_check.warn_pct  (默认 80)：WARNING 日志
+    disk_check.critical_pct (默认 90)：CRITICAL 日志 + 邮件
+    同一文件系统只报告一次（避免重复告警）。
+    """
+    dc = cfg.get("disk_check") or {}
+    if not dc.get("enabled", True):
+        return
+    warn_pct     = float(dc.get("warn_pct", 80))
+    critical_pct = float(dc.get("critical_pct", 90))
+    paths        = cfg.get("paths", {})
+
+    check_keys = ["raw_video", "data_warehouse", "logs", "reports"]
+    seen_devices: set = set()   # 同一块盘只报一次
+
+    for key in check_keys:
+        path = paths.get(key)
+        if not path or not os.path.isdir(path):
+            continue
+        try:
+            st   = os.stat(path)
+            dev  = st.st_dev
+            if dev in seen_devices:
+                continue
+            seen_devices.add(dev)
+
+            usage   = shutil.disk_usage(path)
+            pct     = usage.used / usage.total * 100
+            free_gb = usage.free / 1024 ** 3
+
+            if pct >= critical_pct:
+                logger.critical(
+                    "磁盘告急 [%s] 使用率 %.1f%% — 剩余 %.1f GB，请立即清理！",
+                    path, pct, free_gb,
+                )
+                _send_disk_alert(cfg, path, pct, free_gb, level="critical")
+            elif pct >= warn_pct:
+                logger.warning(
+                    "磁盘预警 [%s] 使用率 %.1f%% — 剩余 %.1f GB",
+                    path, pct, free_gb,
+                )
+        except OSError as e:
+            logger.warning("磁盘检查失败 [%s]: %s", path, e)
+
+
+def _send_disk_alert(cfg: Dict[str, Any], path: str, pct: float, free_gb: float, level: str) -> None:
+    """发磁盘告警邮件（仅 critical 级别）。"""
+    email_cfg = cfg.get("email_setting", {})
+    if not email_cfg:
+        return
+    from utils import notifier
+    subject = f"【DataFactory 磁盘告急】使用率 {pct:.1f}% — 剩余 {free_gb:.1f} GB"
+    body = (
+        f"DataFactory 边缘节点磁盘告急：\n\n"
+        f"  路径：{path}\n"
+        f"  使用率：{pct:.1f}%\n"
+        f"  剩余空间：{free_gb:.1f} GB\n\n"
+        f"建议操作：\n"
+        f"  1. 检查 storage/raw/ 是否有未处理的大文件\n"
+        f"  2. 调低 rolling_cleanup 的 retention_days\n"
+        f"  3. 手动清理 storage/archive/ 中最旧的批次\n\n"
+        f"本邮件由 DataFactory 自动生成。"
+    )
+    try:
+        notifier.send_mail(email_cfg, subject, body)
+    except Exception as e:
+        logger.warning("发送磁盘告警邮件失败: %s", e)
 
 
 def run_rolling_cleanup(cfg: Dict[str, Any]) -> None:

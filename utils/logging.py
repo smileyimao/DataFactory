@@ -1,4 +1,4 @@
-# config/logging.py — 应用日志配置（P1 时区+轮转配置驱动）
+# utils/logging.py — 应用日志配置（P1 时区+轮转配置驱动）
 import logging
 import logging.handlers
 import os

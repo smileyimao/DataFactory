@@ -17,6 +17,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # ─── Pipeline：Guard 模式持续监控 storage/raw/ ───────────────────────────
   # 手动运行单次：docker compose run --rm pipeline python main.py
@@ -36,6 +41,11 @@ services:
       - ./models:/app/models          # YOLO .pt 模型文件（只读挂载也可）
       - ./config/settings.yaml:/app/config/settings.yaml:ro
     command: ["python", "main.py", "--guard"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ─── SENTINEL-1 遥测看板 ──────────────────────────────────────────────────
   sentinel:
@@ -53,6 +63,11 @@ services:
       - ./storage:/app/storage:ro     # 读取 archive 帧（--source archive 时）
       - ./config/settings.yaml:/app/config/settings.yaml:ro
     command: ["python", "dashboard/sentinel.py", "--source", "mock", "--port", "8766"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # ─── HQ Global Command Center ─────────────────────────────────────────────
   hq:
@@ -69,6 +84,11 @@ services:
     volumes:
       - ./config/settings.yaml:/app/config/settings.yaml:ro
     command: ["python", "dashboard/hq.py", "--port", "8767"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # ─── Review Dashboard（review.mode=dashboard 时启用）─────────────────────
   # 默认不启动；需要时：docker compose --profile review up review
@@ -88,6 +108,11 @@ services:
       - ./storage:/app/storage:ro
       - ./config/settings.yaml:/app/config/settings.yaml:ro
     command: ["python", "dashboard/app.py"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # ─── MLflow 实验跟踪 UI ────────────────────────────────────────────────────
   # 默认不启动；需要时：docker compose --profile mlflow up mlflow
@@ -115,6 +140,11 @@ services:
       - "0.0.0.0"
       - --port
       - "5000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
 volumes:
   postgres_data:

@@ -1,40 +1,75 @@
-# 🏭 DataFactory 默认配置（勿直接编辑；用 scripts/reset_config.py 恢复到此状态）
-# 路径均相对于项目根目录 (base_dir)，由 config_loader 解析为绝对路径
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║         DataFactory — 出厂默认配置                                          ║
+# ║                                                                              ║
+# ║  ⚠️  请勿直接编辑此文件。                                                    ║
+# ║     用户配置请修改 config/settings.yaml。                                    ║
+# ║     如需恢复出厂默认：python scripts/reset_config.py                         ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+# ── §1 系统基础 ────────────────────────────────────────────────────────────────
+
+modality: video
+timezone: "America/Toronto"
+
+logging:
+  max_bytes: 10485760
+  backup_count: 5
+
+
+# ── §2 存储路径 ────────────────────────────────────────────────────────────────
 
 paths:
-  raw_video: "storage/raw"
-  test_source: "storage/test/original"
-  data_warehouse: "storage/archive"
-  rejected_material: "storage/rejected"
+  raw_video:          "storage/raw"
+  data_warehouse:     "storage/archive"
+  rejected_material:  "storage/rejected"
   redundant_archives: "storage/redundant"
-  reports: "storage/reports"
-  labeling_export: "storage/for_labeling"
-  labeled_return: "storage/labeled_return"
-  training: "storage/training"
-  golden: "storage/golden"
-  pending_review: "storage/pending_review"
-  quarantine: "storage/quarantine"
-  logs: "logs"
+  quarantine:         "storage/quarantine"
 
-  batch_prefix: "Batch_"
+  labeling_export:    "storage/for_labeling"
+  labeled_return:     "storage/labeled_return"
+  training:           "storage/training"
+
+  reports:            "storage/reports"
+  golden:             "storage/golden"
+  pending_review:     "storage/pending_review"
+  test_source:        "storage/test/original"
+  logs:               "logs"
+
+  batch_prefix:       "Batch_"
   batch_fails_suffix: "_Fails"
   batch_subdirs:
-    reports: "reports"
-    source: "source"
-    refinery: "refinery"
+    reports:    "reports"
+    source:     "source"
+    refinery:   "refinery"
     inspection: "inspection"
-    labeled: "labeled"
-  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, test_source, pending_review, quarantine, logs]
+    labeled:    "labeled"
+
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives,
+                reports, labeling_export, labeled_return, training, golden,
+                test_source, pending_review, quarantine, logs]
+
+  dashboard_port: 8765
+
+
+# ── §3 数据摄入 (Ingest) ───────────────────────────────────────────────────────
 
 ingest:
   batch_wait_seconds: 8
-  poll_interval_seconds: 30
-  video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
   file_stable_check_interval: 1
   file_stable_min_seconds: 2
+  poll_interval_seconds: 30
+
+  video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
+  image_extensions: [".jpg", ".jpeg", ".png"]
+  image_mode: "auto"
+
   pre_filter_enabled: true
   dedup_at_ingest: true
   decode_check_at_ingest: true
+
+
+# ── §4 质量控制 (QC) ───────────────────────────────────────────────────────────
 
 quality_thresholds:
   min_brightness: 55.0
@@ -49,18 +84,55 @@ production_setting:
   pass_rate_gate: 85.0
   dual_gate_high: null
   dual_gate_low: null
+
   save_normal: true
   save_warning: true
+  save_only_screened: false
+
+  confidence_tiered_output: true
+  refinery_top_pct: 30
+  approved_split_confidence_threshold: 0.60
   refinery_min_confidence: 0.65
+  human_review_flat: true
+
   video_tier_high_detection_rate: 0.60
   video_tier_high_conf: 0.70
   video_tier_low_detection_rate: 0.30
   video_tier_low_conf: 0.50
 
+# 默认关闭 YOLO，先跑通规则质检后再开启
+vision:
+  enabled: false
+  model_path: ""
+  sample_seconds: 10
+
+  use_i_frame_only: false
+  motion_threshold: 0
+  cascade_light_model_path: ""
+  cascade_light_conf: 0.2
+
+  conf: 0.25
+  iou: 0.45
+  classes: null
+  device: null
+  max_det: 300
+  imgsz: 640
+  half: false
+  verbose: false
+
+
+# ── §5 人工复核 ────────────────────────────────────────────────────────────────
+
 review:
-  mode: "terminal"
+  mode: "terminal"       # 默认终端模式，无需启动 dashboard 服务
   timeout_seconds: 600
   valid_inputs: ["y", "n", "all", "none"]
+
+
+# ── §6 标注闭环 ────────────────────────────────────────────────────────────────
+
+cvat:
+  upload_pseudo_labels: false
 
 labeling_pool:
   auto_update_after_batch: true
@@ -68,21 +140,26 @@ labeling_pool:
   refinery_sample_rate: 0.05
 
 labeled_return:
-  consistency_threshold: 0.95
+  consistency_threshold: 0
   alert_via_email: true
-  skip_empty_labels: true   # 并入训练集时丢弃无标注图（相似帧未标）
+  skip_empty_labels: true
 
-retry:
-  max_attempts: 3
-  backoff_seconds: 1.0
 
-email_setting:
-  smtp_server: "smtp.mail.me.com"
-  smtp_port: 587
-  sender: ""
-  receiver: ""
+# ── §7 模型训练与追踪 ──────────────────────────────────────────────────────────
 
-# HQ 全球站点：用于本地时钟 + 天气 API
+# 默认关闭 MLflow，配置好服务地址后再开启
+mlflow:
+  enabled: false
+  experiment_name: "datafactory"
+  tracking_uri: null
+
+version_mapping:
+  algorithm_version: "rules_v1"
+  vision_model_version: ""
+
+
+# ── §8 全球站点 (HQ Dashboard) ────────────────────────────────────────────────
+
 sites:
   sudbury:
     timezone: "America/Toronto"
@@ -97,28 +174,21 @@ sites:
     lat: -24.5000
     lon: -69.2500
 
-# v2.0 视觉质检（YOLO）：默认关闭，新手可先跑通规则质检再开启
-vision:
-  enabled: false
-  model_path: ""
-  sample_seconds: 10
-  conf: 0.25
-  iou: 0.45
-  classes: null
-  device: null
-  max_det: 300
-  imgsz: 640
-  half: false
-  verbose: false
 
-mlflow:
-  enabled: false
-  experiment_name: "datafactory"
-  tracking_uri: null
+# ── §9 运维与稳定性 ────────────────────────────────────────────────────────────
 
-version_mapping:
-  algorithm_version: "rules_v1"
-  vision_model_version: ""
+# 邮件留空，部署时在 settings.yaml 中填写
+email_setting:
+  smtp_server: "smtp.mail.me.com"
+  smtp_port: 587
+  sender: ""
+  receiver: ""
+  max_retries: 3
+  retry_delay_seconds: 5
+
+retry:
+  max_attempts: 3
+  backoff_seconds: 1.0
 
 startup_self_check: true
 startup_golden_run: false
@@ -127,3 +197,8 @@ rolling_cleanup:
   logs_retention_days: 30
   reports_retention_days: 30
   archive_retention_days: 0
+
+disk_check:
+  enabled: true
+  warn_pct: 80
+  critical_pct: 90

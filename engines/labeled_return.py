@@ -8,10 +8,10 @@ import shutil
 import zipfile
 import logging
 from datetime import datetime
-from core import time_utils
+from utils import time_utils
 from typing import Any, Dict, List, Optional, Tuple
 
-from engines import file_tools
+from utils import file_tools
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ def send_alert(
     diff_report: List[Dict[str, Any]],
 ) -> None:
     """伪标签一致率低于门槛时发邮件，提示人工标注与伪标签差异较大，需人工复核（使用 email_setting）。"""
-    from . import notifier
+    from utils import notifier
     email_cfg = cfg.get("email_setting", {})
     if not email_cfg or not cfg.get("labeled_return", {}).get("alert_via_email", True):
         return
@@ -305,7 +305,7 @@ def send_refinery_alert(
     sample_count: int,
 ) -> None:
     """Refinery 抽检一致率低时发邮件，给出 approved_split_confidence_threshold 调整建议。"""
-    from . import notifier
+    from utils import notifier
     email_cfg = cfg.get("email_setting", {})
     if not email_cfg or not cfg.get("labeled_return", {}).get("alert_via_email", True):
         return
@@ -352,7 +352,7 @@ def merge_to_training(
 ) -> int:
     """将 import_dir 内图片+txt 并入 training_dir/import_id/，返回文件数。使用 retry 防静默失败。
     若 labeled_return.skip_empty_labels 为 true，则跳过 .txt 为空的图（未标的变化不大相似帧）。"""
-    from engines import retry_utils
+    from utils import retry_utils
     retry_cfg = (cfg or {}).get("retry", {})
     max_attempts = retry_cfg.get("max_attempts", 3)
     backoff = retry_cfg.get("backoff_seconds", 1.0)
@@ -400,7 +400,7 @@ def copy_to_batch_labeled(
     若 labeled_return.skip_empty_labels 为 true，跳过无标注的图。
     返回写入 batch labeled 的文件数。
     """
-    from engines import retry_utils
+    from utils import retry_utils
     if not archive_base or not os.path.isdir(archive_base):
         return 0
     retry_cfg = (cfg or {}).get("retry", {})

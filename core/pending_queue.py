@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
-from core import time_utils
+from utils import time_utils
 
 logger = logging.getLogger(__name__)
 

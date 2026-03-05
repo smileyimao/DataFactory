@@ -139,7 +139,7 @@
 - 增加 `--list-formats` 用于查询实例支持的格式名
 - 用 certifi 或 `verify_ssl=False` 解决 macOS SSL
 
-**效果**：`python scripts/cvat_upload_annotations.py <task_id>` 可稳定上传
+**效果**：`python scripts/cvat/cvat_upload_annotations.py <task_id>` 可稳定上传
 
 **教训**：接入外部 API 时，优先查官方 SDK；格式/参数以实例返回为准（如 `--list-formats`）；云版与自建版行为可能不同
 

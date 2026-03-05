@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scripts/cvat_api.py — 本地 CVAT API 封装，所有 CVAT 操作通过此文件
+# scripts/cvat/cvat_api.py — 本地 CVAT API 封装，所有 CVAT 操作通过此文件
 """
 配置从 .env 读取：
   CVAT_LOCAL_URL=http://localhost:8080

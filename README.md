@@ -52,11 +52,11 @@ First run creates `storage/` and `db/`. Report copies go to `storage/reports/`.
 - `python scripts/reset_factory.py` — clean storage
 - `python scripts/export_for_labeling.py` — export to `storage/for_labeling`
 - `python scripts/import_labeled_return.py --dir /path` — receive labeled return, compare to pseudo-labels, merge to training
-- `python scripts/cvat_pull_annotations.py --task-id <id>` — pull completed annotations from local CVAT, convert to YOLO format, trigger labeled_return merge; `--list` to list all tasks
-- `python scripts/train_model.py` — train YOLOv8 on `storage/training/`, log to MLflow, register to Model Registry; `--epochs N --batch N --model yolov8m.pt --dry-run`
-- `python scripts/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB
+- `python scripts/cvat/cvat_pull_annotations.py --task-id <id>` — pull completed annotations from local CVAT, convert to YOLO format, trigger labeled_return merge; `--list` to list all tasks
+- `python scripts/mlflow/train_model.py` — train YOLOv8 on `storage/training/`, log to MLflow, register to Model Registry; `--epochs N --batch N --model yolov8m.pt --dry-run`
+- `python scripts/mlflow/compare_models.py --new X.pt --baseline Y.pt --data DIR` — compare models, log to MLflow/DB
 - `python scripts/query_lineage.py` — list recent batches; `--batch ID` batch detail; `--import-id ID` label import detail; `--trains` list training runs; `--train-id ID` training detail
-- `python scripts/register_model.py path/to/model.pt --name vehicle_detector` — register model to MLflow Registry
+- `python scripts/mlflow/register_model.py path/to/model.pt --name vehicle_detector` — register model to MLflow Registry
 
 **CVAT local setup** (one-time):
 ```bash
@@ -156,7 +156,7 @@ Current code covers **v1.x** through **v3.1** (CVAT 本地闭环 + YOLO 训练 +
 |--------|-------------|
 | **Inspection flattening** | `human_review_flat=true`: Normal/Warning merged, only manifest+images+txt kept for for_labeling import. |
 | **Labeling pool auto-update** | `labeling_pool.auto_update_after_batch=true`: After each batch archive, inspection is auto-appended to for_labeling. |
-| **Model comparison** | `scripts/compare_models.py`: Run two models on same data, compare detections, write to MLflow/DB. |
+| **Model comparison** | `scripts/mlflow/compare_models.py`: Run two models on same data, compare detections, write to MLflow/DB. |
 | **Dashboard** | `review.mode=dashboard`: Web review, single/batch approve/reject, no timeout data loss. |
 | **Labeled return vs pseudo-label validation** | `scripts/import_labeled_return.py`: Return vs pseudo-label IoU matching, consistency threshold alert, merge to training when compliant; write back to `archive/Batch_xxx/labeled/` by batch_id (safe_copy retry prevents silent failure). |
 

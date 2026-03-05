@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# scripts/register_model.py — v3 将训练产出的 .pt 注册到 MLflow Model Registry
+# scripts/mlflow/register_model.py — v3 将训练产出的 .pt 注册到 MLflow Model Registry
 """
 将本地 .pt 模型注册到 MLflow Model Registry，便于 config 使用 models:/name/version。
 用法:
-  python scripts/register_model.py path/to/model.pt --name vehicle_detector --version 1
-  python scripts/register_model.py path/to/model.pt --name vehicle_detector  # 自动递增版本
+  python scripts/mlflow/register_model.py path/to/model.pt --name vehicle_detector --version 1
+  python scripts/mlflow/register_model.py path/to/model.pt --name vehicle_detector  # 自动递增版本
 """
 import argparse
 import os

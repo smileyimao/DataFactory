@@ -97,7 +97,7 @@
 
 **四板斧（vision 段）**：`use_i_frame_only` 只解 I-帧；`motion_threshold` 运动唤醒（0=关闭）；`cascade_light_model_path` 级联轻量模型；`cascade_light_conf` 级联置信度。详见 **docs/Roadmap.md** 高效筛查技术线。
 
-**v3.0 Model Registry**：`vision.model_path`、`cascade_light_model_path` 支持 `models:/name/version`（MLflow Model Registry URI）；自动解析并下载到 `models/registry_cache/`。注册本地 .pt：`python scripts/register_model.py path/to/model.pt --name vehicle_detector`。
+**v3.0 Model Registry**：`vision.model_path`、`cascade_light_model_path` 支持 `models:/name/version`（MLflow Model Registry URI）；自动解析并下载到 `models/registry_cache/`。注册本地 .pt：`python scripts/mlflow/register_model.py path/to/model.pt --name vehicle_detector`。
 
 命令行 `--gate 90` 可覆盖 `pass_rate_gate`。
 

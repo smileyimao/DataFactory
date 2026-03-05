@@ -58,7 +58,7 @@
 | 4.1 | **Dataset 关联**：MLflow run 关联 training 数据来源（batch_id、路径） | refinery_dir、inspection_dir、source_archive_dir 入 run params | ✅ |
 | 4.2 | **Model lineage**：模型版本可追溯至训练数据批次与变换链路 | batch_lineage + label_import 元数据 | ✅ |
 | 4.3 | **可复现**：给定模型版本，反查训练数据与 QC 参数 | query_lineage.py | ✅ |
-| 4.4 | **MLflow Model Registry**：训练产出注册到 Registry，按名称+版本加载 | scripts/register_model.py | ✅ |
+| 4.4 | **MLflow Model Registry**：训练产出注册到 Registry，按名称+版本加载 | scripts/mlflow/register_model.py | ✅ |
 | 4.5 | **config 引用 Registry**：`vision.model_path` 支持 `models:/vehicle_detector/2` | model_registry.resolve_model_uri | ✅ |
 | 4.6 | **Track/评估 run 关联**：count_vehicles_track 等评估 run 关联 model version | 待扩展 | — |
 

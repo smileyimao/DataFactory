@@ -6,7 +6,7 @@ from typing import List, Any, Dict, Optional
 import cv2
 from tqdm import tqdm
 
-from . import file_tools
+from utils import file_tools
 from . import quality_tools
 from . import report_tools
 from . import frame_io

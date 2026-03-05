@@ -1,4 +1,4 @@
-# core/time_utils.py — 时区工具（P1 配置驱动，poka yoke）
+# utils/time_utils.py — 时区工具（P1 配置驱动，poka yoke）
 """从配置读取时区，避免硬编码。无 cfg 时回退默认。"""
 from datetime import datetime
 from typing import Any, Dict

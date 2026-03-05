@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# scripts/cvat_setup_labels.py — 通过 CVAT API 创建 Project 并添加 27 个 label，或输出手动添加清单
+# scripts/cvat/cvat_setup_labels.py — 通过 CVAT API 创建 Project 并添加 27 个 label，或输出手动添加清单
 """
 用法:
-  python scripts/cvat_setup_labels.py --print     # 仅打印 27 个 label，供手动复制
-  python scripts/cvat_setup_labels.py             # 通过 API 创建（需 CVAT_URL + CVAT_TOKEN）
+  python scripts/cvat/cvat_setup_labels.py --print     # 仅打印 27 个 label，供手动复制
+  python scripts/cvat/cvat_setup_labels.py             # 通过 API 创建（需 CVAT_URL + CVAT_TOKEN）
 
   API 方式需在 .env 配置: CVAT_URL, CVAT_TOKEN
   获取 Token: CVAT 登录 → 右上角头像 → Auth Token → Generate
@@ -91,7 +91,7 @@ def main():
     if r.status_code == 403 and "maximum" in (r.text or "").lower():
         print("❌ 项目数已达上限。请用已有 Project：")
         print("   1. 打开 CVAT Projects 页面，找到要用的 Project，记下 URL 中的 id（如 /projects/372531）")
-        print("   2. 运行: python scripts/cvat_setup_labels.py --project-id 372531")
+        print("   2. 运行: python scripts/cvat/cvat_setup_labels.py --project-id 372531")
         return 1
     print(f"❌ 失败: {r.status_code}")
     print((r.text or "")[:600])

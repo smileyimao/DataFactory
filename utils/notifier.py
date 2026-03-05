@@ -1,4 +1,4 @@
-# engines/notifier.py — 邮件通知，只发送不决策（P2：重试配置驱动）
+# utils/notifier.py — 邮件通知，只发送不决策（P2：重试配置驱动）
 import os
 import smtplib
 import time

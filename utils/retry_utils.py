@@ -1,4 +1,4 @@
-# engines/retry_utils.py — 文件操作重试（P0 工业级）
+# utils/retry_utils.py — 文件操作重试（P0 工业级）
 """
 对 shutil.move/copy 等易受瞬时故障影响的操作提供重试。
 配置：retry.max_attempts, retry.backoff_seconds

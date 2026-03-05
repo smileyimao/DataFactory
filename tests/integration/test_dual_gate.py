@@ -52,7 +52,7 @@ def test_dual_gate_split_and_archive(test_cfg, temp_dir, project_root):
     """双门槛分流正确，auto_reject 归档至废片库。"""
     from config import config_loader
     from core import archiver
-    from core import time_utils
+    from utils import time_utils
 
     config_loader.set_base_dir(project_root)
     cfg = dict(test_cfg)

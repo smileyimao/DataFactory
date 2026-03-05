@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scripts/migrate_sqlite_to_pg.py — one-shot SQLite → PostgreSQL data migration
+# scripts/db/migrate_sqlite_to_pg.py — one-shot SQLite → PostgreSQL data migration
 """
 Reads every row from each table in the SQLite factory_admin.db and inserts
 them into the PostgreSQL database specified by DATABASE_URL.
@@ -9,7 +9,7 @@ ON CONFLICT DO NOTHING, so it is safe to run multiple times.
 
 Usage:
   DATABASE_URL=postgresql://datafactory:datafactory@localhost:5432/datafactory \
-    python scripts/migrate_sqlite_to_pg.py
+    python scripts/db/migrate_sqlite_to_pg.py
 
 Requirements:
   - PostgreSQL tables must already exist (run db_tools.init_db first)

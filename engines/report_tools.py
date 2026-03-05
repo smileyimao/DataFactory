@@ -6,7 +6,7 @@ import base64
 import shutil
 from datetime import datetime
 
-from core import time_utils
+from utils import time_utils
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd

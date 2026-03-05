@@ -247,15 +247,15 @@
 
 ### Model Registry（v3.0 ✅）
 
-- [x] config 引用 Registry：vision.model_path 支持 models:/name/version；engines/model_registry.py 解析；scripts/register_model.py 注册
+- [x] config 引用 Registry：vision.model_path 支持 models:/name/version；engines/model_registry.py 解析；scripts/mlflow/register_model.py 注册
 
 ### CVAT 本地闭环（v3.1 ✅）
 
 - [x] 自部署 CVAT：本地 Docker 部署，无 SaaS 费用
-- [x] API 全自动：自动创建 Project/Task、上传图片+伪标签（scripts/cvat_upload_annotations.py）
-- [x] 标注拉取：自动导出标注结果、格式转换、并入 labeled_return（scripts/cvat_pull_annotations.py）
+- [x] API 全自动：自动创建 Project/Task、上传图片+伪标签（scripts/cvat/cvat_upload_annotations.py）
+- [x] 标注拉取：自动导出标注结果、格式转换、并入 labeled_return（scripts/cvat/cvat_pull_annotations.py）
 - [x] 闭环打通：for_labeling → CVAT → import_labeled_return → training，全程脚本化
-- [x] model_train 血缘表：scripts/train_model.py 写入，scripts/query_lineage.py --train-id 查询
+- [x] model_train 血缘表：scripts/mlflow/train_model.py 写入，scripts/query_lineage.py --train-id 查询
 
 ### 质量分流增强（v3.3 ✅）
 
@@ -389,9 +389,28 @@
 
 ### 访问控制与多租户
 
-- [ ] 模型组与账号：各组只能使用和热更新自己的模型资产
-- [ ] 燃料与数据归属：各组只能访问/复制本组模型的燃料（按批次或业务线）
-- [ ] 操作审计：谁、何时、复制了什么（batch ID、目录、账号）可存储可查询
+#### 角色体系（RBAC）
+
+| 角色 | 典型用户 | 允许操作 |
+|------|----------|----------|
+| `admin` | 系统管理员 | 所有操作 + 用户管理 + 配置变更 |
+| `engineer` | ML 工程师 | 触发训练、查看全部指标、调整阈值、导出数据 |
+| `annotator` | 标注员 | 进入 Review Dashboard、提交 approve/reject |
+| `operator` | 现场操作员 | 触发单次 ingest、查看 Sentinel 遥测（只读） |
+| `viewer` | 管理层 | HQ 大屏只读、报表下载，不可写任何数据 |
+
+#### 实现计划
+
+- [ ] **用户表**：`users`（id, username, hashed_password, role, created_at）；PostgreSQL 存储
+- [ ] **JWT 认证**：登录接口颁发 access_token（24h）+ refresh_token（30d）；无状态，便于多服务共享
+- [ ] **Dashboard 门控**：
+  - `app.py` (Review) → 仅 `annotator` / `engineer` / `admin`
+  - `sentinel.py` → 仅 `operator` / `engineer` / `admin`
+  - `hq.py` → 所有已登录用户（`viewer` 可访问）
+- [ ] **API 权限装饰器**：`@require_role("engineer", "admin")` 统一拦截未授权请求，返回 401/403
+- [ ] **模型组与账号**：各组只能使用和热更新自己的模型资产
+- [ ] **燃料与数据归属**：各组只能访问/复制本组模型的燃料（按批次或业务线）
+- [ ] **操作审计日志**：谁、何时、做了什么（approve/reject/train/export + batch_id + user_id）写入 `audit_log` 表，可查询可导出
 
 ---
 

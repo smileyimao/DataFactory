@@ -25,7 +25,7 @@ def main():
     print(f"✓ SMTP: {email_cfg.get('smtp_server')}:{email_cfg.get('smtp_port')}")
     print(f"  发件: {email_cfg.get('sender')} -> {email_cfg.get('receiver')}")
 
-    from engines import notifier
+    from utils import notifier
     ok = notifier.send_mail(
         email_cfg,
         "【DataFactory 测试】邮件配置验证",

@@ -177,7 +177,7 @@ flowchart TD
 | **Version Mapping**        | `version_info.json`；algorithm_version / vision_model_version |
 | **MLflow 存储**            | `tracking_uri` 默认 `sqlite:///db/mlflow.db`，与 factory_admin.db 同目录 |
 | **数据血缘 (v3.0)**       | `batch_lineage`、`label_import` 表；pipeline 归档后自动写入；`scripts/query_lineage.py` 查询 |
-| **Model Registry (v3.0)** | `vision.model_path` 支持 `models:/name/version`；`engines/model_registry.py` 解析；`scripts/register_model.py` 注册 |
+| **Model Registry (v3.0)** | `vision.model_path` 支持 `models:/name/version`；`engines/model_registry.py` 解析；`scripts/mlflow/register_model.py` 注册 |
 | **待标池自动更新**         | `labeling_export.auto_update_after_batch()`；每批归档后自动将 inspection 追加到 for_labeling；`labeling_pool.auto_update_after_batch` 配置 |
 | **主动学习标注优先级**     | 时间紧优先标低 confidence + QC 异常；`skip_empty_labels` 丢弃未标相似帧；manifest 扩展 max_confidence/qc_env 待实现；见 docs/active_labeling_priority.md |
 

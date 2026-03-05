@@ -93,7 +93,7 @@ def _ensure_test_data(project_root: str) -> bool:
 
 def _check_fingerprints(project_root: str) -> None:
     sys.path.insert(0, project_root)
-    from engines import fingerprinter
+    from utils import fingerprinter
 
     test_root = _get_test_root(project_root)
     paths = []

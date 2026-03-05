@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# scripts/cvat_upload_annotations.py — 通过 CVAT API 将标注上传到指定 Task
+# scripts/cvat/cvat_upload_annotations.py — 通过 CVAT API 将标注上传到指定 Task
 """
 用法:
-  python scripts/cvat_upload_annotations.py <task_id>
-  python scripts/cvat_upload_annotations.py 2054061 --zip storage/for_labeling/for_cvat_native.zip
+  python scripts/cvat/cvat_upload_annotations.py <task_id>
+  python scripts/cvat/cvat_upload_annotations.py 2054061 --zip storage/for_labeling/for_cvat_native.zip
 
 格式：CVAT for images 1.1（原生格式，与 CVAT 导出一致）
 需在 .env 配置 CVAT_URL、CVAT_TOKEN

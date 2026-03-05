@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# scripts/compare_models.py — 新旧模型对比：在相同数据上跑两个模型，比较检测结果，写入 MLflow/DB
+# scripts/mlflow/compare_models.py — 新旧模型对比：在相同数据上跑两个模型，比较检测结果，写入 MLflow/DB
 """
 用法:
-  python scripts/compare_models.py --new yolov8s.pt --baseline yolov8n.pt --data storage/for_labeling/images
-  python scripts/compare_models.py --new path/to/new.pt --baseline config  # baseline 用 config 中的 vision.model_path
+  python scripts/mlflow/compare_models.py --new yolov8s.pt --baseline yolov8n.pt --data storage/for_labeling/images
+  python scripts/mlflow/compare_models.py --new path/to/new.pt --baseline config  # baseline 用 config 中的 vision.model_path
 """
 import argparse
 import json

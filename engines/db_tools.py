@@ -128,7 +128,7 @@ def record_production(
 ) -> bool:
     """写入一条生产记录。成功返回 True，失败记录日志并返回 False。"""
     if created_at is None:
-        from core import time_utils
+        from utils import time_utils
         created_at = time_utils.now_toronto().strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn = db_connection.connect(db_url)

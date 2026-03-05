@@ -1,125 +1,196 @@
-# 🏭 DataFactory 配置中心 (v1.6)
-# 路径均相对于项目根目录 (base_dir)，由 config_loader 解析为绝对路径
-# 工业级：路径解耦，改名只需改此处，支持 env 覆盖（如 DATA_WAREHOUSE）
-# v2.9：modality 解耦，未来可扩展 audio/vibration（predictive maintenance）
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║            DataFactory — 配置中心                                           ║
+# ║                                                                              ║
+# ║  按流程分区，快速定位：                                                       ║
+# ║   §1 系统基础      §2 存储路径      §3 数据摄入                               ║
+# ║   §4 质量控制      §5 人工复核      §6 标注闭环                               ║
+# ║   §7 模型训练      §8 全球站点      §9 运维稳定性                             ║
+# ║                                                                              ║
+# ║  路径均相对于项目根目录（base_dir），由 config_loader 解析为绝对路径。         ║
+# ║  所有路径 / 关键参数均支持环境变量覆盖（见 config_loader.py）。               ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
-modality: video   # video | audio | vibration（v3 扩展）
+
+# ── §1 系统基础 ────────────────────────────────────────────────────────────────
+# 整个 pipeline 的全局身份与运行环境。
+
+modality: video          # 数据模态：video | image | audio（扩展中）
+timezone: "America/Toronto"   # 本地时区（用于批次命名、日志时间戳）
+
+logging:
+  max_bytes: 10485760    # 单日志文件上限 10 MB，超限轮转
+  backup_count: 5        # 保留最近 5 个历史日志文件
+
+
+# ── §2 存储路径 ────────────────────────────────────────────────────────────────
+# 所有目录只在此处定义，代码通过 cfg["paths"] 读取，不硬编码路径。
+# 边缘部署时改此处即可，其余代码不动。
 
 paths:
-  raw_video: "storage/raw"
-  test_source: "storage/test/original"   # 测试模式：从此复制到 raw，pipeline 不改动此目录
-  data_warehouse: "storage/archive"
-  dashboard_port: 8765   # 厂长中控台端口
-  rejected_material: "storage/rejected"
-  redundant_archives: "storage/redundant"
-  reports: "storage/reports"
-  labeling_export: "storage/for_labeling"   # 可选：导出待标注清单目录（scripts/export_for_labeling.py）
-  labeled_return: "storage/labeled_return"   # 标注回传落盘目录（scripts/import_labeled_return.py）
-  training: "storage/training"                # 达标数据并入的训练集根目录
-  golden: "storage/golden"                 # 黄金库：开机自检时真跑一遍用；边缘部署可改为挂载点如 /opt/factory/golden
-  pending_review: "storage/pending_review"   # 待复核队列目录（中控台 dashboard）
-  quarantine: "storage/quarantine"           # Ingest 预检：重复/解码失败视频移入此目录
-  logs: "logs"
+  # 数据流主路径
+  raw_video:          "storage/raw"              # 原材料投入口（Guard 模式监控此目录）
+  data_warehouse:     "storage/archive"          # 归档成品库（批次目录落盘）
+  rejected_material:  "storage/rejected"         # 质检不合格
+  redundant_archives: "storage/redundant"        # 重复文件隔离
+  quarantine:         "storage/quarantine"       # Ingest 预检失败（解码错误/重复）
 
+  # 标注闭环路径
+  labeling_export:    "storage/for_labeling"     # 待标注图片输出（送 CVAT）
+  labeled_return:     "storage/labeled_return"   # 标注员回传落盘
+  training:           "storage/training"         # 达标数据并入训练集
 
-  # 批次目录结构（path decoupling：改名只改此处）
-  batch_prefix: "Batch_"
+  # 运维 / 测试路径
+  reports:            "storage/reports"          # QC 报表
+  golden:             "storage/golden"           # 黄金库：开机自检用参考视频
+  pending_review:     "storage/pending_review"   # 人工复核队列（中控台）
+  test_source:        "storage/test/original"    # 测试模式源目录（不被 pipeline 改动）
+  logs:               "logs"
+
+  # 批次目录命名规则（path decoupling：改名只改此处）
+  batch_prefix:       "Batch_"
   batch_fails_suffix: "_Fails"
   batch_subdirs:
-    reports: "reports"
-    source: "source"
-    refinery: "refinery"
-    inspection: "inspection"
-    labeled: "labeled"   # 人工标注回传落盘（import_labeled_return 达标后按 batch_id 写回）
+    reports:    "reports"
+    source:     "source"
+    refinery:   "refinery"      # 高置信伪标签帧
+    inspection: "inspection"    # 低置信待人工标注帧
+    labeled:    "labeled"       # 标注回传按 batch_id 写回
 
-  # 启动时确保存在的目录（可覆盖以适配自定义部署）
-  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives, reports, labeling_export, labeled_return, training, golden, test_source, pending_review, quarantine, logs]
+  # 启动时自动创建的目录列表
+  ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives,
+                reports, labeling_export, labeled_return, training, golden,
+                test_source, pending_review, quarantine, logs]
+
+  # Dashboard 端口（厂长中控台，docker-compose 中已映射）
+  dashboard_port: 8765
+
+
+# ── §3 数据摄入 (Ingest) ───────────────────────────────────────────────────────
+# 控制 Guard 模式如何扫描 raw/ 目录、识别文件、执行预检。
 
 ingest:
-  batch_wait_seconds: 8
-  poll_interval_seconds: 30   # 轮询兜底：每 N 秒扫 raw，Watchdog 漏检时仍能发现（0=不轮询）
+  batch_wait_seconds: 8          # 文件写入稳定等待时间（防止文件还在拷贝中就被摄入）
+  file_stable_check_interval: 1  # 稳定性检查间隔（秒）
+  file_stable_min_seconds: 2     # 文件大小不变持续此秒数才视为稳定
+  poll_interval_seconds: 30      # 轮询兜底周期（Watchdog 漏检时补救，0=关闭）
+
   video_extensions: [".mp4", ".mov", ".avi", ".mkv"]
-  image_extensions: [".jpg", ".jpeg", ".png"]   # image 通路时递归扫描
-  image_mode: "auto"   # auto=根据 raw 自动判定；true=强制图片；false=强制视频；both=混合（图片+视频都处理）
-  file_stable_check_interval: 1
-  file_stable_min_seconds: 2
-  # Ingest 预检：在送入 pipeline 前做 dedup + 首帧解码检查，失败项移入 quarantine
-  pre_filter_enabled: true
-  dedup_at_ingest: true
-  decode_check_at_ingest: true
+  image_extensions: [".jpg", ".jpeg", ".png"]
+  image_mode: "auto"             # auto=自动判断；true=强制图片；false=强制视频；both=混合
 
+  # 预检三道门（建议全开，不合格项移入 quarantine）
+  pre_filter_enabled: true       # 是否启用 Ingest 预检
+  dedup_at_ingest: true          # 入库前去重（基于 MD5 指纹）
+  decode_check_at_ingest: true   # 首帧解码检查（检测损坏文件）
+
+
+# ── §4 质量控制 (QC) ───────────────────────────────────────────────────────────
+# 帧级质量指标阈值 → 批次合格门槛 → YOLO 视觉检测。
+
+# 4a. 帧级质量阈值（超出范围的帧被标记为不合格）
 quality_thresholds:
-  min_brightness: 55.0
-  max_brightness: 225.0
-  min_blur_score: 20.0
-  min_contrast: 15.0
-  max_contrast: 100.0
-  max_jitter: 35.0
+  min_brightness: 55.0     # 亮度下限（低于 = Too Dark）
+  max_brightness: 225.0    # 亮度上限（高于 = Harsh Light）
+  min_blur_score: 20.0     # 清晰度下限，Laplacian 方差（低于 = Blurry）
+  min_contrast: 15.0       # 对比度下限，灰度标准差（低于 = Low Contrast）
+  max_contrast: 100.0      # 对比度上限（高于 = High Contrast）
+  max_jitter: 35.0         # 帧间抖动上限（高于 = High Jitter）
 
+# 4b. 批次合格门槛与分流策略
 production_setting:
-  qc_sample_seconds: 10   # 每视频抽检秒数，用于质量判定（重复检测+不合格检测）
-  pass_rate_gate: 85.0    # 单门槛时：>= 为合格
-  dual_gate_high: null   # v2 双门槛：>= 自动放行；null 则仅用 pass_rate_gate
-  dual_gate_low: null    # v2 双门槛：< 自动拦截；null 则用单门槛
-  save_normal: true
-  save_warning: true
-  save_only_screened: false  # true=只落盘「Warning 或 有 YOLO 检测」的帧，减少全量切片（见 docs/smart_slicing.md）
-  confidence_tiered_output: true   # true=按置信分层落盘(refinery、inspection)；false=全部写 refinery
+  qc_sample_seconds: 10    # 每视频抽检帧间隔（秒），越小越精确、越慢
+  pass_rate_gate: 85.0     # 单门槛：合格帧占比 >= 此值才通过
+
+  # 双门槛模式（null = 关闭，使用单门槛）
+  dual_gate_high: null     # >= 此值自动放行（免人工复核）
+  dual_gate_low: null      # <  此值自动拦截（强制进 rejected）
+
+  save_normal: true        # 是否落盘 Normal 帧
+  save_warning: true       # 是否落盘 Warning 帧
+  save_only_screened: false  # true=只落盘「有 YOLO 检测」的帧（大幅减少存储）
+
+  # YOLO 置信度分流：高置信 → refinery（伪标签），低置信 → inspection（待人工标注）
+  confidence_tiered_output: true
+  refinery_top_pct: 30                        # 置信度前 N% 的帧进 refinery（0=关闭，用固定门槛）
   approved_split_confidence_threshold: 0.60   # 固定门槛（refinery_top_pct=0 时生效）
-  refinery_top_pct: 30                        # 动态门槛：置信度前 N% 的帧进 refinery，0=关闭用固定门槛
-  refinery_min_confidence: 0.65               # 绝对下限：即使排名靠前，低于此值也进 inspection（防止差批次污染 refinery）
-  human_review_flat: true   # true=inspection 精简：Normal/Warning 合并，只保留 manifest+图+txt 便于 for_labeling 导入
-  # 视频级三档分流阈值（非 precomputed 路径生效）
-  video_tier_high_detection_rate: 0.60   # hit_rate 高档下限
-  video_tier_high_conf: 0.70             # mean_conf 高档下限
-  video_tier_low_detection_rate: 0.30    # hit_rate 低于此 → low
-  video_tier_low_conf: 0.50              # mean_conf 低于此 → low
+  refinery_min_confidence: 0.65               # 绝对下限：低于此值强制进 inspection
 
-review:
-  mode: dashboard   # terminal=终端逐项 y/n；dashboard=入队由中控台复核
-  timeout_seconds: 600
-  valid_inputs: ["y", "n", "all", "none"]
+  human_review_flat: true  # inspection 精简模式：Normal/Warning 合并，只保留图+txt
 
-email_setting:
-  smtp_server: "smtp.mail.me.com"
-  smtp_port: 587
-  sender: "smileyimao@icloud.com"
-  receiver: "xituled@gmail.com"
-  max_retries: 3        # P2 邮件发送重试
-  retry_delay_seconds: 5
+  # 视频级三档分流（高/标准/低质量视频）
+  video_tier_high_detection_rate: 0.60
+  video_tier_high_conf: 0.70
+  video_tier_low_detection_rate: 0.30
+  video_tier_low_conf: 0.50
 
-# v2.0 视觉质检（YOLO）：开关、模型路径、抽帧与推理参数（均从配置读取，无硬编码）
+# 4c. YOLO 视觉检测
 vision:
   enabled: true
-  model_path: "models:/vehicle_detector/1"    # v1 fine-tuned；回退用 "models/yolov8s.pt"
-  sample_seconds: 5        # 抽帧间隔（秒），与 production_setting.qc_sample_seconds 对齐或扩展
-  # 四板斧：高效筛查
-  use_i_frame_only: false   # true=只解 I-帧（需 ffprobe），减少解码量
-  motion_threshold: 0       # 运动唤醒：帧差低于此值不跑 YOLO，0=关闭
-  cascade_light_model_path: ""   # 级联初筛：留空关闭（数车辆时 COCO 会过滤掉车）
-  cascade_light_conf: 0.2   # 级联轻量模型置信度阈值
-  # 推理参数（predict）：未配置时由 config_loader 填入工业默认值
-  conf: 0.25                # 置信度阈值 [0,1]
-  iou: 0.45                 # NMS IoU 阈值
-  classes: [2, 5, 7]       # 只检测车辆：car(2) bus(5) truck(7)；null 为全部
-  device: null              # 推理设备，如 "cuda:0" / "cpu" / null 自动
-  max_det: 300              # 每图最大检测框数
-  imgsz: 640                # 输入尺寸（边长）
-  half: false               # FP16 半精度（GPU）
-  verbose: false            # 是否打印推理日志
+  model_path: "models:/vehicle_detector/1"   # MLflow Registry URI；回退用 "models/yolov8s.pt"
+  sample_seconds: 5      # YOLO 抽帧间隔（秒）
 
-# v2.0 MLflow（可选）：批次级实验与指标记录
+  # 推理加速（按需开启）
+  use_i_frame_only: false     # 只解 I 帧，减少解码量（需 ffprobe）
+  motion_threshold: 0         # 运动唤醒：帧差低于此值跳过 YOLO（0=关闭）
+  cascade_light_model_path: ""  # 级联轻量初筛模型路径（空=关闭）
+  cascade_light_conf: 0.2
+
+  # 推理参数
+  conf: 0.25             # 置信度阈值
+  iou: 0.45              # NMS IoU 阈值
+  classes: [2, 5, 7]    # 检测类别：car(2) bus(5) truck(7)；null=全部
+  device: null           # 推理设备："cuda:0" / "cpu" / null（自动）
+  max_det: 300
+  imgsz: 640             # 输入分辨率（边长）
+  half: false            # FP16 半精度（仅 GPU）
+  verbose: false
+
+
+# ── §5 人工复核 ────────────────────────────────────────────────────────────────
+# 双门槛中间态（或单门槛边缘批次）进入人工复核队列。
+
+review:
+  mode: dashboard        # terminal=终端逐项 y/n；dashboard=中控台 Web 复核
+  timeout_seconds: 600   # 终端模式超时自动跳过
+  valid_inputs: ["y", "n", "all", "none"]
+
+
+# ── §6 标注闭环 ────────────────────────────────────────────────────────────────
+# CVAT 上传 → 待标池管理 → 标注回传校验。
+
+# 6a. CVAT 上传配置
+cvat:
+  upload_pseudo_labels: false   # true=上传伪标签供标注员参考；false=图片只标，从零开始
+
+# 6b. 待标池：每批归档后自动将 inspection 帧追加到 for_labeling
+labeling_pool:
+  auto_update_after_batch: true
+  upload_inspection: true        # inspection 全量进待标池
+  refinery_sample_rate: 0.05    # refinery 抽样比例（按视频分层）；0=不抽
+
+# 6c. 标注回传：伪标签一致性校验与报警
+labeled_return:
+  consistency_threshold: 0      # IoU 一致率门槛；0=仅记录不报警
+  alert_via_email: true         # 一致率不达标时发邮件报警
+  skip_empty_labels: true       # 并入训练集时跳过无标注图（减少冗余）
+
+
+# ── §7 模型训练与追踪 ──────────────────────────────────────────────────────────
+
 mlflow:
   enabled: true
   experiment_name: "datafactory"
-  tracking_uri: "http://0.0.0.0:5001"  # MLflow server，局域网可访问；改回 null 退回本地 sqlite
+  tracking_uri: "http://0.0.0.0:5001"   # MLflow 服务地址；null=退回本地 SQLite
 
-# M2 版本映射：日志与元数据中可写可读，便于 v4 血缘与审计
 version_mapping:
-  algorithm_version: "rules_v1"   # 规则质检算法版本
-  vision_model_version: ""       # 视觉模型版本，留空则由运行时加载的模型路径填充
+  algorithm_version: "rules_v1"   # 规则质检算法版本（写入血缘记录）
+  vision_model_version: ""        # 留空则由运行时从模型路径自动填充
 
-# HQ 全球站点：用于本地时钟 + 天气 API
+
+# ── §8 全球站点 (HQ Dashboard) ────────────────────────────────────────────────
+# HQ 大屏站点卡片：本地时钟 + Open-Meteo 天气。
+# 新增站点：复制任意一组，填写 timezone / lat / lon。
+
 sites:
   sudbury:
     timezone: "America/Toronto"
@@ -134,38 +205,36 @@ sites:
     lat: -24.5000
     lon: -69.2500
 
-# P1 工业级：时区、日志轮转
-timezone: "America/Toronto"
-logging:
-  max_bytes: 10485760   # 10MB 单文件，超则轮转
-  backup_count: 5       # 保留 5 个历史文件
 
-# 开机自检与滚动清零（全球/边缘部署可按存储环境覆盖）
-startup_self_check: true    # 启动时校验配置与关键目录可写，失败则退出
-startup_golden_run: false  # 为 true 时用 paths.golden 下视频真跑一遍 QC，失败则退出（edge 建议开启）
+# ── §9 运维与稳定性 ────────────────────────────────────────────────────────────
+# 邮件通知、文件重试、磁盘保护、开机自检。
 
-# CVAT 上传配置
-cvat:
-  upload_pseudo_labels: false   # true=上传伪标签供标注员参考；false=只上传图片，标注员从零开始
+# 9a. 邮件通知（QC 报警 / 磁盘告急 / 标注回传异常）
+email_setting:
+  smtp_server: "smtp.mail.me.com"
+  smtp_port: 587
+  sender: "smileyimao@icloud.com"
+  receiver: "xituled@gmail.com"
+  max_retries: 3
+  retry_delay_seconds: 5
 
-# 待标池自动更新：每批归档后自动将 inspection 追加到 for_labeling
-labeling_pool:
-  auto_update_after_batch: true
-  upload_inspection: true        # true=inspection 全量进待标池（默认开）
-  refinery_sample_rate: 0.05     # refinery 按视频分层抽样比例，0=不抽
-
-# 标注回传与伪标签一致性校验（多级净化）
-labeled_return:
-  consistency_threshold: 0      # 0=关闭报警，仅记录数值用于趋势观察；未来可改为双向阈值（>98%懒标/<5%偏差）
-  alert_via_email: true        # 是否发邮件报警（使用 email_setting）
-  skip_empty_labels: true      # true=并入训练集时丢弃无标注的图（变化不大未标的相似帧），减少冗余
-
-# P0 工业级：文件操作重试（瞬时故障如 NFS 抖动）
+# 9b. 文件操作重试（应对 NFS 抖动 / 边缘磁盘瞬时故障）
 retry:
   max_attempts: 3
   backoff_seconds: 1.0
 
+# 9c. 开机自检
+startup_self_check: true     # 启动时校验配置 + 关键目录可写，失败则退出
+startup_golden_run: false    # true=用 golden/ 下视频真跑一遍 QC，边缘部署建议开启
+
+# 9d. 滚动清零（防止日志/报表无限堆积）
 rolling_cleanup:
-  logs_retention_days: 30      # 日志保留天数，超期删除（0=不删）
-  reports_retention_days: 30   # 报表保留天数，超期删除（0=不删）
-  archive_retention_days: 0    # 成品库归档保留天数（0=不自动删，谨慎开启）
+  logs_retention_days: 30      # 日志保留天数（0=不自动删）
+  reports_retention_days: 30   # 报表保留天数（0=不自动删）
+  archive_retention_days: 0    # 归档批次保留天数（0=不自动删，谨慎开启）
+
+# 9e. 磁盘用量预警
+disk_check:
+  enabled: true
+  warn_pct: 80       # 使用率超过此值 → WARNING 日志
+  critical_pct: 90   # 使用率超过此值 → CRITICAL 日志 + 邮件

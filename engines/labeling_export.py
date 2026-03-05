@@ -16,8 +16,10 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# 常见可标注媒体扩展
+# 常见可标注媒体扩展（含视频，用于批次浏览）
 MEDIA_EXT = {".mp4", ".mov", ".avi", ".mkv", ".jpg", ".jpeg", ".png", ".bmp"}
+# for_labeling 只接受图片帧，不接受视频文件
+IMAGE_EXT  = {".jpg", ".jpeg", ".png", ".bmp"}
 
 # COCO 80类名（yolov8s.pt 默认）
 _COCO_NAMES = [
@@ -249,14 +251,14 @@ def _stratified_sample_by_video(items: list, rate: float) -> list:
 
 
 def _collect_media_from_dir(dir_path: str) -> List[Dict[str, Any]]:
-    """从目录递归收集媒体文件（含 Normal/Warning 子目录或平铺）。"""
+    """从目录递归收集图片文件（含 Normal/Warning 子目录或平铺）。只收集 IMAGE_EXT，不含视频。"""
     out = []
     if not os.path.isdir(dir_path):
         return out
     for root, _, files in os.walk(dir_path, topdown=True):
         for name in sorted(files):
             ext = os.path.splitext(name)[1].lower()
-            if ext not in MEDIA_EXT:
+            if ext not in IMAGE_EXT:
                 continue
             full = os.path.join(root, name)
             if not os.path.isfile(full):

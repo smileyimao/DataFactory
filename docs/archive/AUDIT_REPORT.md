@@ -14,7 +14,7 @@
 |------|------|------|
 | `config/config_loader.py` | `init_storage_structure()` | 已由 `init_storage_from_config()` 替代，main.py 等均调用后者；文档/CHANGELOG 仍提及旧名 |
 | `config/config_loader.py` | `get_paths()` | 定义但从未调用；`docs/settings_guide.md` 有引用说明 |
-| `scripts/cvat_api.py` | `upload_images()` | 定义但未使用；`auto_cvat_upload` 使用 `upload_images_from_zip()` |
+| `scripts/cvat/cvat_api.py` | `upload_images()` | 定义但未使用；`auto_cvat_upload` 使用 `upload_images_from_zip()` |
 | `engines/file_tools.py` | `list_video_paths()` | 非递归版本；ingest 使用 `list_video_paths_recursive()` |
 | `engines/metrics.py` | `get(name)` | 定义但从未调用；仅 `inc()`、`get_all()` 被使用 |
 | `engines/metrics.py` | `reset(name)` | 定义但从未调用 |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scripts/cvat_pull_annotations.py — 从本地 CVAT 拉取已标注 Task，转 YOLO 格式，触发 labeled_return
+# scripts/cvat/cvat_pull_annotations.py — 从本地 CVAT 拉取已标注 Task，转 YOLO 格式，触发 labeled_return
 """
 人工在 CVAT 完成标注后，运行此脚本：
   1. 从本地 CVAT 下载标注 XML（CVAT for images 1.1）
@@ -9,10 +9,10 @@
   5. 血缘自动记录到 DB + MLflow
 
 用法:
-  python scripts/cvat_pull_annotations.py --task-id 1
-  python scripts/cvat_pull_annotations.py --task-id 1 --no-merge   # 只对比，不并入
-  python scripts/cvat_pull_annotations.py --task-id 1 --dry-run    # 只打印，不写文件
-  python scripts/cvat_pull_annotations.py --list                   # 列出所有 Task 进度
+  python scripts/cvat/cvat_pull_annotations.py --task-id 1
+  python scripts/cvat/cvat_pull_annotations.py --task-id 1 --no-merge   # 只对比，不并入
+  python scripts/cvat/cvat_pull_annotations.py --task-id 1 --dry-run    # 只打印，不写文件
+  python scripts/cvat/cvat_pull_annotations.py --list                   # 列出所有 Task 进度
 """
 import argparse
 import json
@@ -234,7 +234,7 @@ def _build_import_dir(
     返回 (成功匹配图片数, 未找到源图片数)。
     图片名先精确匹配，再 sanitize 兼容。
     """
-    from engines import file_tools
+    from utils import file_tools
 
     os.makedirs(dest_dir, exist_ok=True)
     matched = 0
@@ -395,9 +395,9 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例:\n"
-            "  python scripts/cvat_pull_annotations.py --list\n"
-            "  python scripts/cvat_pull_annotations.py --task-id 1\n"
-            "  python scripts/cvat_pull_annotations.py --task-id 1 --dry-run\n"
+            "  python scripts/cvat/cvat_pull_annotations.py --list\n"
+            "  python scripts/cvat/cvat_pull_annotations.py --task-id 1\n"
+            "  python scripts/cvat/cvat_pull_annotations.py --task-id 1 --dry-run\n"
         ),
     )
     parser.add_argument("--task-id", type=int, default=None, metavar="ID",

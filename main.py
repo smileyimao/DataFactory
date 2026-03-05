@@ -81,7 +81,7 @@ def _print_pipeline_report(stats: dict, input_name: str, cvat_url: str = "") -> 
 def _run_test_mode(gate_val=None):
     """测试模式：临时环境跑全链路，邮件照发，不污染真实 storage/DB。"""
     from config import config_loader
-    from config import logging as log_config
+    from utils import logging as log_config
     from core import pipeline
     from core import seed_test
 
@@ -148,11 +148,12 @@ def _run_test_mode(gate_val=None):
         log_config.setup_logging(BASE_DIR, test_cfg)
         config_loader.init_storage_from_config(test_cfg)
 
-        from config import startup
+        from utils import startup
         if test_cfg.get("startup_self_check", True):
             if not startup.run_startup_self_check(test_cfg):
                 sys.exit(1)
         startup.run_rolling_cleanup(test_cfg)
+        startup.run_disk_check(test_cfg)
         if test_cfg.get("startup_golden_run"):
             if not startup.run_golden_run(test_cfg):
                 sys.exit(1)
@@ -168,7 +169,7 @@ def _run_test_mode(gate_val=None):
 
 def main():
     from config import config_loader
-    from config import logging as log_config
+    from utils import logging as log_config
     from core import pipeline
 
     parser = argparse.ArgumentParser(description="DataFactory 集中质检复核")
@@ -189,11 +190,12 @@ def main():
     log_config.setup_logging(BASE_DIR, cfg)
     config_loader.init_storage_from_config(cfg)
 
-    from config import startup
+    from utils import startup
     if cfg.get("startup_self_check", True):
         if not startup.run_startup_self_check(cfg):
             sys.exit(1)
     startup.run_rolling_cleanup(cfg)
+    startup.run_disk_check(cfg)
     if cfg.get("startup_golden_run"):
         if not startup.run_golden_run(cfg):
             sys.exit(1)

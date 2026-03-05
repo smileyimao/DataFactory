@@ -87,7 +87,7 @@
 | 4.1 | **Dataset 关联**：MLflow run 关联 training 数据来源（batch_id、路径） | refinery_dir、inspection_dir、source_archive_dir 入 run params | ✅ |
 | 4.2 | **Model lineage**：模型版本可追溯至训练数据批次与变换链路 | batch_lineage + label_import 元数据 | ✅ |
 | 4.3 | **可复现**：给定模型版本，可反查其训练数据与 QC 参数 | query_lineage.py | ✅ |
-| 4.4 | **Model Registry**：vision.model_path 支持 models:/name/version | engines/model_registry.py、scripts/register_model.py | ✅ |
+| 4.4 | **Model Registry**：vision.model_path 支持 models:/name/version | engines/model_registry.py、scripts/mlflow/register_model.py | ✅ |
 
 ---
 

@@ -31,13 +31,13 @@ python scripts/export_for_cvat_native.py --vehicle
 
 ```bash
 export CVAT_URL="https://app.cvat.ai" CVAT_TOKEN="your_token"
-python scripts/cvat_setup_labels.py
+python scripts/cvat/cvat_setup_labels.py
 ```
 
 ## 方式二：手动添加 Label（可选）
 
 ```bash
-python scripts/cvat_setup_labels.py --print
+python scripts/cvat/cvat_setup_labels.py --print
 ```
 
 按输出顺序在 Project → Labels → Add label 中逐个添加。**顺序必须一致**。

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# scripts/download_models.py — 下载 YOLO 模型到 models/
+# scripts/mlflow/download_models.py — 下载 YOLO 模型到 models/
 """
 将 yolov8n（nano）、yolov8s（small）等下载到 models/ 目录。
 级联检测：cascade 用 nano 初筛，main 用 small 精检。
 
-  python scripts/download_models.py
-  python scripts/download_models.py --model yolov8s   # 只下载指定模型
+  python scripts/mlflow/download_models.py
+  python scripts/mlflow/download_models.py --model yolov8s   # 只下载指定模型
 """
 import argparse
 import os

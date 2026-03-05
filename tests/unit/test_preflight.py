@@ -32,7 +32,7 @@ def test_validate_config_dual_gate_inconsistent_returns_error():
 
 def test_startup_self_check_refuses_invalid_config():
     """run_startup_self_check 在非法配置时返回 False（Pre-flight 拒绝启动）。"""
-    from config.startup import run_startup_self_check
+    from utils.startup import run_startup_self_check
 
     cfg = _minimal_valid_cfg()
     cfg["production_setting"] = {"dual_gate_high": 50, "dual_gate_low": 80}
@@ -42,6 +42,6 @@ def test_startup_self_check_refuses_invalid_config():
 
 def test_startup_self_check_passes_valid_config(test_cfg):
     """合法配置时 run_startup_self_check 返回 True。"""
-    from config.startup import run_startup_self_check
+    from utils.startup import run_startup_self_check
 
     assert run_startup_self_check(test_cfg) is True

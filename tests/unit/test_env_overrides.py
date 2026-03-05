@@ -35,17 +35,17 @@ def test_env_override_data_warehouse(monkeypatch, project_root):
     assert cfg["paths"]["data_warehouse"] == custom_path
 
 
-def test_env_override_db_file(monkeypatch, project_root):
-    """DATAFACTORY_DB_FILE 覆盖 paths.db_file。"""
+def test_env_override_db_url(monkeypatch, project_root):
+    """DATABASE_URL 覆盖 paths.db_url（v3.2+ PG 模式）。"""
     from config import config_loader
 
-    custom_db = "/var/lib/factory/admin.db"
-    monkeypatch.setenv("DATAFACTORY_DB_FILE", custom_db)
+    custom_url = "postgresql://user:pass@localhost:5432/testdb"
+    monkeypatch.setenv("DATABASE_URL", custom_url)
     monkeypatch.delenv("DATAFACTORY_RAW_VIDEO", raising=False)
 
     config_loader.set_base_dir(project_root)
     cfg = config_loader.load_config()
-    assert cfg["paths"]["db_file"] == custom_db
+    assert cfg["paths"]["db_url"] == custom_url
 
 
 def test_env_key_naming():
