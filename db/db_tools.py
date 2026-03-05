@@ -1,11 +1,11 @@
-# engines/db_tools.py — 数据库工具：查重、记录、血缘，只读写不决策
+# db/db_tools.py — 数据库工具：查重、记录、血缘，只读写不决策
 # P0 工业级：所有 DB 操作捕获异常，记录日志，失败时返回 None/空
 import json
 import os
 import logging
 from typing import Optional, Dict, Any, List
 
-from engines import db_connection
+from db import db_connection
 
 logger = logging.getLogger(__name__)
 

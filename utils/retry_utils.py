@@ -68,7 +68,7 @@ def safe_move_with_retry(
     except (OSError, IOError, PermissionError) as e:
         logger.exception("文件移动失败（已重试）: %s -> %s: %s", src, dest, e)
         try:
-            from engines import metrics
+            from utils import metrics
             metrics.inc("file_move_errors_total")
         except Exception:
             pass
@@ -101,7 +101,7 @@ def safe_copy_with_retry(
             max_attempts, src, dest, e,
         )
         try:
-            from engines import metrics
+            from utils import metrics
             metrics.inc("file_copy_errors_total")
         except Exception:
             pass

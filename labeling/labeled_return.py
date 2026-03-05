@@ -1,4 +1,4 @@
-# engines/labeled_return.py — 标注回传接收、伪标签对比、门槛报警、训练集并入
+# labeling/labeled_return.py — 标注回传接收、伪标签对比、门槛报警、训练集并入
 """
 标注团队回传 → 落盘 labeled_return → 与伪标签对比 → 低于门槛报警 → 达标并入 training。
 """
@@ -542,7 +542,7 @@ def run_full_pipeline(
         # v3 血缘：记录 label_import 关联
         batch_ids = _collect_batch_ids_from_manifest(manifest_map, import_dir)
         if batch_ids and training_dir:
-            from engines import db_tools
+            from db import db_tools
             db_path = paths.get("db_url", "")
             if db_path:
                 db_tools.record_label_import(

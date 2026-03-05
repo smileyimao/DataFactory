@@ -1,4 +1,4 @@
-# engines/metrics.py — P2 简单 counters，便于告警与可观测
+# utils/metrics.py — P2 简单 counters，便于告警与可观测
 """
 线程安全的简单计数器，供 pipeline 各阶段递增。
 可后续扩展为 Prometheus 或导出到 MLflow。

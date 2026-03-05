@@ -61,7 +61,7 @@ def test_guard_processes_existing_videos(project_root, temp_dir):
     """Guard 开机扫描能处理 raw 下已有视频（startup_scan + pipeline 逻辑）。"""
     from config import config_loader
     from core import guard
-    from core import seed_test
+    from tests.helpers import seed_test
 
     config_loader.set_base_dir(project_root)
     cfg = config_loader.load_config()

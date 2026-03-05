@@ -83,7 +83,7 @@ def _run_test_mode(gate_val=None):
     from config import config_loader
     from utils import logging as log_config
     from core import pipeline
-    from core import seed_test
+    from tests.helpers import seed_test
 
     config_loader.set_base_dir(BASE_DIR)
     cfg = config_loader.load_config()
@@ -158,7 +158,7 @@ def _run_test_mode(gate_val=None):
             if not startup.run_golden_run(test_cfg):
                 sys.exit(1)
 
-        from engines import db_tools
+        from db import db_tools
         if not db_tools.init_db(temp_db):
             print("❌ 数据库初始化失败。")
             sys.exit(1)
@@ -204,7 +204,7 @@ def main():
     if not db_url:
         print("❌ DATABASE_URL 未设置，请在 .env 中配置 DATABASE_URL=postgresql://...")
         sys.exit(1)
-    from engines import db_tools
+    from db import db_tools
     if not db_tools.init_db(db_url):
         print("❌ 数据库初始化失败，请检查 DATABASE_URL 配置与 PostgreSQL 是否运行。")
         sys.exit(1)
@@ -238,7 +238,7 @@ def main():
         cvat_configured = bool(os.environ.get("CVAT_LOCAL_URL"))
         should_upload = (args.auto_cvat or cvat_configured) and not args.no_cvat
         if should_upload and stats.get("total", 0) > 0:
-            from engines import annotation_upload
+            from labeling import annotation_upload
             cvat_url = annotation_upload.upload(cfg, task_name=stats.get("batch_id", "DataFactory"))
 
         _print_pipeline_report(stats, input_name, cvat_url)

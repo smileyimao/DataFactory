@@ -6,7 +6,8 @@ from typing import List, Dict, Any, Tuple, Optional
 
 from config import config_loader
 from utils import time_utils
-from engines import db_tools, production_tools, vision_detector
+from db import db_tools
+from vision import production_tools, vision_detector
 from utils import retry_utils
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def _split_approved_by_vision_conf(
     若传入 precomputed_detections（QC 阶段结果），则复用，不再跑 YOLO。
     返回 (to_fuel, to_human, detections_by_video) 供后续量产复用。
     """
-    from engines import vision_detector
+    from vision import vision_detector
     threshold = float(cfg.get("production_setting", {}).get("approved_split_confidence_threshold", 0.6))
     video_paths = [x["archive_path"] for x in items if os.path.isfile(x.get("archive_path", ""))]
     empty_dets: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}

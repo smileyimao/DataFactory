@@ -1,4 +1,4 @@
-# engines/quality_tools.py — 质检传感器，只返回数值，不返回合格/不合格判断
+# vision/quality_tools.py — 质检传感器，只返回数值，不返回合格/不合格判断
 # v2 #19：不合格检测可扩展 — 通过 register_extra_check 注册额外检测项，由 decide_env 统一调度
 import cv2
 import numpy as np

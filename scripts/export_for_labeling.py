@@ -18,7 +18,7 @@ BASE_DIR = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, BASE_DIR)
 
 from config import config_loader
-from engines import labeling_export
+from labeling import labeling_export
 
 
 def main():

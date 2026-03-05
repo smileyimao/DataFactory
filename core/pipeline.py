@@ -6,7 +6,10 @@ from typing import List, Optional
 
 from config import config_loader
 from core import ingest, qc_engine, reviewer, archiver, pending_queue
-from engines import db_tools, labeling_export, metrics, modality_handlers
+from db import db_tools
+from labeling import labeling_export
+from utils import metrics
+from vision import modality_handlers
 
 logger = logging.getLogger(__name__)
 

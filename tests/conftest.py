@@ -74,7 +74,7 @@ def test_cfg(project_root: str, temp_dir: str) -> Dict[str, Any]:
 @pytest.fixture
 def test_db(temp_dir: str) -> str:
     """临时 DB 路径，已 init_db。"""
-    from engines import db_tools
+    from db import db_tools
 
     db_path = os.path.join(temp_dir, "factory_test.db")
     db_tools.init_db(db_path)

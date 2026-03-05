@@ -1,4 +1,4 @@
-# engines/production_tools.py — 在视频/图片上跑质检并生成 manifest/报告（调用 quality_tools + report_tools）
+# vision/production_tools.py — 在视频/图片上跑质检并生成 manifest/报告（调用 quality_tools + report_tools）
 import os
 import shutil
 from typing import List, Any, Dict, Optional
@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from utils import file_tools
 from . import quality_tools
-from . import report_tools
+from utils import report_tools
 from . import frame_io
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png")

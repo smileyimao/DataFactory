@@ -1,4 +1,4 @@
-# engines/motion_filter.py — 运动唤醒：帧差/光流，静止画面不跑 YOLO
+# vision/motion_filter.py — 运动唤醒：帧差/光流，静止画面不跑 YOLO
 """用帧差或光流计算运动量，低于阈值视为静态，可跳过检测。"""
 import logging
 from typing import Optional, Tuple

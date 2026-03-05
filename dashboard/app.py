@@ -30,7 +30,7 @@ THUMBS_DIR = config_loader.get_pending_thumbs_dir(_CFG)
 @app.get("/api/metrics")
 def get_metrics():
     """P2 简单 counters 快照，便于监控与告警。"""
-    from engines import metrics
+    from utils import metrics
     return {"counters": metrics.get_all()}
 
 
@@ -43,7 +43,7 @@ def health_check():
     db_url = paths.get("db_url") or paths.get("db_file")
     if db_url:
         try:
-            from engines import db_connection
+            from db import db_connection
             conn = db_connection.connect(db_url)
             conn.cursor().execute("SELECT 1")
             conn.close()

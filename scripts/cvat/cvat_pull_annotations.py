@@ -283,7 +283,7 @@ def pull_and_import(
     返回 labeled_return.run_full_pipeline 的结果 dict，附加 task_id/class_names/annotated_images。
     """
     from config import config_loader
-    from engines import labeled_return
+    from labeling import labeled_return
 
     config_loader.set_base_dir(BASE_DIR)
     cfg, paths = config_loader.get_config_and_paths(BASE_DIR)

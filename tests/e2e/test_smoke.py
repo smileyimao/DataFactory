@@ -128,7 +128,7 @@ def test_smoke_qc_full_flow(project_root):
 
     from config import config_loader
     from core import qc_engine
-    from engines import db_tools
+    from db import db_tools
 
     config_loader.set_base_dir(project_root)
     cfg = config_loader.load_config()

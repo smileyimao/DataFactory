@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-import engines.db_connection as dbc
+import db.db_connection as dbc
 
 pytestmark = pytest.mark.unit
 
@@ -160,7 +160,7 @@ class TestConnect:
         mock_conn = MagicMock()
         with patch.dict("sys.modules", {"psycopg2": MagicMock(connect=MagicMock(return_value=mock_conn))}):
             import importlib
-            import engines.db_connection as dbc2
+            import db.db_connection as dbc2
             importlib.reload(dbc2)
             conn = dbc2.connect("postgresql://user:pass@localhost/db")
         assert conn is mock_conn

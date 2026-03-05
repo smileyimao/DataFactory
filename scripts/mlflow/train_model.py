@@ -261,7 +261,7 @@ def _record_model_train(
     mlflow_run_id: str,
 ) -> bool:
     """写入 model_train 血缘，表不存在时自动创建。失败返回 False。"""
-    from engines import db_connection
+    from db import db_connection
     try:
         conn = db_connection.connect(db_url)
         cur = conn.cursor()

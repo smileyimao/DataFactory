@@ -1,4 +1,4 @@
-# engines/vision_detector.py — v2.0 视觉质检：YOLO 单例加载，抽帧推理，仅返回检测结果，不决策
+# vision/vision_detector.py — v2.0 视觉质检：YOLO 单例加载，抽帧推理，仅返回检测结果，不决策
 # 支持四板斧：运动唤醒、I-帧、级联检测。
 import base64
 import io

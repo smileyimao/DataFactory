@@ -1,4 +1,4 @@
-# engines/site_info.py — 站点实时时钟 + 天气
+# utils/site_info.py — 站点实时时钟 + 天气
 """
 提供两个公共函数：
 

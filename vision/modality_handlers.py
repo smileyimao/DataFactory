@@ -1,4 +1,4 @@
-# engines/modality_handlers.py — v2.9 多模态解耦：按 modality 分发 decode_check / sample / produce
+# vision/modality_handlers.py — v2.9 多模态解耦：按 modality 分发 decode_check / sample / produce
 # 流程与信号类型解耦，未来 config 切换 modality 即可接入 audio/vibration（predictive maintenance）
 """
 Modality 抽象层：Ingest decode_check、Funnel QC sample/quality、Archive produce 均按 modality 分发。

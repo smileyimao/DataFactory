@@ -1,4 +1,4 @@
-# engines/frame_io.py — I-帧抽取：只解 I-帧减少解码量
+# vision/frame_io.py — I-帧抽取：只解 I-帧减少解码量
 """用 ffprobe 获取 I-帧位置，只读取这些帧。若无 ffprobe 则回退到按秒抽帧。"""
 import logging
 import subprocess

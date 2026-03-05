@@ -113,7 +113,7 @@ def run_golden_run(cfg: Dict[str, Any]) -> bool:
             run_cfg["paths"]["db_file"] = temp_db
             run_cfg["paths"]["reports"] = temp_reports
             run_cfg["email_setting"] = {}
-            from engines import db_tools
+            from db import db_tools
             from core import qc_engine
             if not db_tools.init_db(temp_db):
                 logger.error("黄金库自检失败: 临时 DB 初始化失败")

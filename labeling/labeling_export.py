@@ -1,4 +1,4 @@
-# engines/labeling_export.py — 为接入 ML 做准备：导出合格/待标注清单，供 Label Studio / CVAT 等使用
+# labeling/labeling_export.py — 为接入 ML 做准备：导出合格/待标注清单，供 Label Studio / CVAT 等使用
 """
 数据清洗与标注管道扩展（Roadmap v1 可选）：
 扫描 storage/archive 下已归档批次，生成「待标注清单」manifest（路径、batch_id、元数据），

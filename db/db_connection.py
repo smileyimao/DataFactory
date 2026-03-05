@@ -1,4 +1,4 @@
-# engines/db_connection.py — SQLite / PostgreSQL thin adapter
+# db/db_connection.py — SQLite / PostgreSQL thin adapter
 """
 Single place to swap database backends.  All other code imports this module
 instead of sqlite3 or psycopg2 directly.

@@ -150,7 +150,7 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     初始化 DB、创建 raw 目录、执行开机扫描、启动 Watchdog + 轮询兜底。
     cfg 未传则从 config_loader 加载；stop_event 传入时主循环会检查并在 set 后退出（测试用）。
     """
-    from engines import db_tools
+    from db import db_tools
 
     if cfg is None:
         cfg = config_loader.load_config()

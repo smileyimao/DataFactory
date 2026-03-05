@@ -1,4 +1,4 @@
-# engines/model_registry.py — v3 MLflow Model Registry：解析 models:/name/version 为本地路径
+# vision/model_registry.py — v3 MLflow Model Registry：解析 models:/name/version 为本地路径
 """
 当 vision.model_path 或 cascade_light_model_path 为 models:/name/version 时，
 从 MLflow Model Registry 下载到本地缓存并返回 .pt 路径，供 YOLO 加载。

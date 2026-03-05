@@ -1,4 +1,4 @@
-# engines/annotation_upload.py — 标注平台上传适配层
+# labeling/annotation_upload.py — 标注平台上传适配层
 # 解耦 pipeline 与具体标注平台：main.py 只调用 upload()，换平台改配置即可
 import logging
 import os
@@ -53,7 +53,7 @@ def upload(cfg: dict, task_name: str = "DataFactory") -> str:
 def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str) -> str:
     """CVAT 上传驱动：导出带置信度标注的图片 → 打包 zip → 上传 CVAT。"""
     import shutil
-    from engines import labeling_export
+    from labeling import labeling_export
     from engines.labeling_export import _COCO_NAMES
     sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
     from export_for_cvat import export_task_zip_flat

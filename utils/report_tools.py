@@ -1,4 +1,4 @@
-# engines/report_tools.py — 报告生成：JSON 清单、HTML 报告、图表、批次工业报表，只干活不决策
+# utils/report_tools.py — 报告生成：JSON 清单、HTML 报告、图表、批次工业报表，只干活不决策
 import os
 import json
 import io

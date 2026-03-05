@@ -1,4 +1,4 @@
-# core/seed_test.py — 测试前将 test_source 复制到 raw，支持反复自动化测试
+# tests/helpers/seed_test.py — 测试前将 test_source 复制到 raw，支持反复自动化测试
 """Pipeline 会把 raw 里的视频 move 走，raw 会被清空。此模块从 test_source 复制到 raw。"""
 import os
 import shutil
