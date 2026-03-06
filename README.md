@@ -68,11 +68,13 @@ python tools.py --test           # End-to-end test in temp env (storage/test/ori
 python tools.py --probe          # Hardware detection and auto-config summary
 python tools.py --usage-report   # Feature usage report (last 30 days)
 
-# Web review dashboard
-python -m dashboard.app          # http://127.0.0.1:8765
+# Dashboards
+python -m dashboard.app          # Review dashboard    http://127.0.0.1:8765
+python dashboard/sentinel.py     # SENTINEL-1 telemetry http://127.0.0.1:8766
+python dashboard/hq.py           # HQ Command Center   http://127.0.0.1:8767
 ```
 
-First run creates `storage/` directories and `db/factory_admin.db` automatically.
+First run creates `storage/` directories automatically. Database: set `DATABASE_URL=postgresql://...` in `.env` for PostgreSQL (production); without it the pipeline exits with an error prompting you to configure the URL — use the SQLite fallback (`db_file` path) only for `--test` / dev isolation.
 
 **Run tests** (after `pip install -r requirements-dev.txt`):
 
@@ -114,6 +116,7 @@ python scripts/db/migrate_sqlite_to_pg.py
 | Database | `db/` | `db_connection.py` (SQLite/PG thin adapter + ThreadedConnectionPool); `db_tools.py` |
 | Vision | `vision/` | `vision_detector`, `quality_tools`, `motion_filter`, `frame_io`, `production_tools`; `foundation_models` (CLIP/SAM, opt-in) |
 | Labeling | `labeling/` | `labeling_export`, `labeled_return`, `annotation_upload` |
+| Dashboard | `dashboard/` | `app.py` (review :8765); `sentinel.py` (frame telemetry :8766); `hq.py` (command center :8767) |
 | Utils | `utils/` | logging (+ JsonFormatter), startup, fingerprinter, retry_utils, file_tools, notifier, time_utils, `system_probe`, `usage_tracker` |
 | Config | `config/` | `settings.yaml`; env override: `DATAFACTORY_*`, `DATAFACTORY_QT__*`, `DATAFACTORY_PS__*` |
 | Storage | `storage/` | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
@@ -122,7 +125,7 @@ python scripts/db/migrate_sqlite_to_pg.py
 | Scripts | `scripts/mlflow/` | `train_model`, `compare_models`, `register_model`, `download_models` |
 | Scripts | `scripts/db/` | `migrate_sqlite_to_pg` |
 | Scripts | `scripts/` | `reset_factory`, `query_lineage`, `import_labeled_return` |
-| Tests | `tests/unit/` | 113 passing; covers db, config, labeling, vision, utils |
+| Tests | `tests/` | unit + integration coverage: db, config, labeling, vision, utils; run `pytest -m "not slow"` |
 
 DB tables: `production_history`, `batch_metrics`, `batch_lineage`, `label_import`, `model_train`.
 
@@ -235,7 +238,7 @@ See **[docs/Roadmap.md](docs/Roadmap.md)** → v4 Edge Deployment section for th
 |--------|----------|----------------------|
 | **Core Workflow** | Automated pipeline, Batch-centric, HITL, Traceability | `core/pipeline` → Ingest → Funnel QC → Admission → Archive |
 | **Defensive Engineering** | Poka-Yoke, Fault-tolerant I/O, Backoff retry, Path sanitization, Failing fast | `retry_utils`, `db_tools` error handling, `validate_config`, `init_db` exit(1) |
-| **Scalability** | Path decoupling, Modular components, Env-agnostic deployment, Plugin registry | `config/` env override; `engines/` modular; `_EXTRA_CHECK_REGISTRY` |
+| **Scalability** | Path decoupling, Modular components, Env-agnostic deployment, Plugin registry | `config/` env override; domain packages `db/`, `vision/`, `labeling/`, `utils/`; `_EXTRA_CHECK_REGISTRY` |
 | **Observability** | Structured logging, Health endpoints, Batch metrics, Data lineage, Version mapping | `JsonFormatter`; `GET /api/health`; `GET /api/metrics`; `batch_lineage` table; `version_info.json` |
 
 ---
