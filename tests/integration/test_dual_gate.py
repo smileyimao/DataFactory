@@ -1,17 +1,13 @@
 # tests/integration/test_dual_gate.py
 """双门槛分流 + archiver 集成测试。"""
 import os
-import sys
 
 import pytest
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skipif(
-        sys.platform == "darwin",
-        reason="archiver 依赖 cv2，macOS 上 numpy/cv2 存在 Floating-point exception",
-    ),
-]
+# archiver → vision.production_tools / vision_detector → cv2；cv2 不可用则跳过
+pytest.importorskip("cv2")
+
+pytestmark = pytest.mark.integration
 
 DUAL_GATE_HIGH = 90.0
 DUAL_GATE_LOW = 50.0

@@ -1,16 +1,11 @@
 # tests/unit/test_quality_tools.py
 """quality_tools.decide_env 单元测试。"""
-import sys
-
 import pytest
 
-pytestmark = [
-    pytest.mark.unit,
-    pytest.mark.skipif(
-        sys.platform == "darwin",
-        reason="cv2/numpy Floating-point exception on macOS (numpy._mac_os_check)",
-    ),
-]
+# 仅在 cv2 未安装时跳过，而非整体排除 macOS
+pytest.importorskip("cv2")
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
@@ -59,8 +54,8 @@ def test_decide_env_low_contrast(base_cfg):
 
 
 def test_decide_env_high_jitter(base_cfg):
-    """高抖动应返回 High Jitter。"""
+    """高抖动应返回 High Jitter（bl 须 >= min_blur_score=20 以避免先触发 Blurry）。"""
     from vision.quality_tools import decide_env
 
-    raw = {"br": 120, "bl": 10, "jitter": 50, "std_dev": 40}
+    raw = {"br": 120, "bl": 50, "jitter": 50, "std_dev": 40}
     assert decide_env(raw, base_cfg) == "High Jitter"

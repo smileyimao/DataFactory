@@ -1,15 +1,11 @@
 # tests/api/test_health_metrics.py
 """Dashboard API：/api/health、/api/metrics。"""
-import sys
-
 import pytest
 
-# 需要 dashboard 模块
+# dashboard 依赖 cv2 + fastapi；缺包则跳过，与平台无关
+pytest.importorskip("cv2")
+pytest.importorskip("fastapi")
 pytest.importorskip("dashboard")
-pytestmark = pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="dashboard 依赖链含 cv2，macOS 上 numpy/cv2 存在 Floating-point exception",
-)
 
 
 def test_health_endpoint(project_root):
