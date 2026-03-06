@@ -1,7 +1,7 @@
 # DataFactory
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-v3.5-informational)
+![Version](https://img.shields.io/badge/version-v3.8-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-production--hardened-brightgreen)
 
@@ -139,6 +139,7 @@ See **docs/architecture.md** and **ROOT_LAYOUT.md** for full directory layout.
 | **v3.2** | SQLite → PostgreSQL: thin adapter, `DATABASE_URL` env, Docker Compose PG16, migration script | ✅ |
 | **v3.3 – v3.4** | Package cleanup: `utils/`, domain-driven split: `db/`, `vision/`, `labeling/` | ✅ |
 | **v3.5** | P0–P3 hardening: PG connection pool, section-level env override, JSON logging, `/health` in guard mode | ✅ |
+| **v3.6** | Refinery labeling pool stratified sampling by video; IoU consistency alert with threshold tuning advice | ✅ |
 | **v3.8** | Mining augmentation: `--augment mining` preset (blur, erasing, rotation, brightness); MLflow tracking | ✅ |
 | **v4.x** | Multimodal, FFT, Edge multi-node, access control, federated augmentation | Design done |
 
@@ -192,7 +193,7 @@ See **docs/settings_guide.md** for the full reference.
 
 ## Roadmap
 
-- **v3.6** *(next)*: Refinery labeling pool stratified sampling + IoU consistency alert
+- **v3.6**: Refinery labeling pool stratified sampling + IoU consistency alert — done (shipped in v3.4 label)
 - **v3.x → v4**: Offline augmentation (Albumentations), synthetic data (game engine / Omniverse), generative AI augmentation (Diffusion/ControlNet), federated augmentation
 - **v4.x**: Multimodal, Temporal Sync, Resource Locking (Edge), FFT, multi-node, access control
 
