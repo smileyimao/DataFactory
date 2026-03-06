@@ -203,3 +203,34 @@ disk_check:
   enabled: true
   warn_pct: 80
   critical_pct: 90
+
+
+# ── §10 基础大模型（CLIP / SAM）─────────────────────────────────────────────
+foundation_models:
+  override: false
+  clip_enabled: false
+  clip_model: "ViT-B-32"
+  clip_pretrained: "openai"
+  clip_device: null
+
+  clip_semantic_dedup_enabled: false
+  clip_semantic_dedup_threshold: 0.98
+
+  clip_diversity_sampling_enabled: false
+  clip_scene_classify_enabled: false
+
+  sam_enabled: false
+  sam_model_type: "vit_b"
+  sam_checkpoint: "models/sam_vit_b.pth"
+  sam_device: null
+
+  sam_cvat_enabled: false
+
+  scene_thresholds:
+    underground_tunnel:
+      min_brightness: 30.0
+      min_blur_score: 10.0
+    dusty_environment:
+      min_blur_score: 10.0
+      min_contrast: 8.0
+    open_pit: {}

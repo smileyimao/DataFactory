@@ -1,7 +1,7 @@
 # DataFactory
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-v3.8-informational)
+![Version](https://img.shields.io/badge/version-v3.9-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-production--hardened-brightgreen)
 
@@ -62,7 +62,11 @@ python main.py
 python main.py --gate 85         # Set pass-rate gate to 85%
 python main.py --guard           # Daemon mode: Watchdog + polling fallback
 python main.py --auto-cvat       # Auto-create CVAT labeling task after archive
-python main.py --test            # End-to-end test using storage/test/original/
+
+# Ops / debug tools (non-pipeline)
+python tools.py --test           # End-to-end test in temp env (storage/test/original/)
+python tools.py --probe          # Hardware detection and auto-config summary
+python tools.py --usage-report   # Feature usage report (last 30 days)
 
 # Web review dashboard
 python -m dashboard.app          # http://127.0.0.1:8765
@@ -73,7 +77,8 @@ First run creates `storage/` directories and `db/factory_admin.db` automatically
 **Run tests** (after `pip install -r requirements-dev.txt`):
 
 ```bash
-pytest tests/ -v -m "not e2e"
+pytest tests/ -v -m "not slow"   # daily CI — skips full-pipeline e2e
+pytest tests/ -m slow            # full-pipeline e2e (needs test video in storage/test/original/)
 ```
 
 **CVAT local setup** (one-time):
@@ -104,11 +109,12 @@ python scripts/db/migrate_sqlite_to_pg.py
 | Layer | Path | Description |
 |-------|------|-------------|
 | Entry | `main.py` | Single run or guard mode (`--guard`: Watchdog + polling + `/health` endpoint) |
+| Ops | `tools.py` | Ops CLI: `--probe` hardware detect; `--test` full-pipeline in temp env; `--usage-report/reset` |
 | Flow | `core/` | `pipeline` → `ingest` → `qc_engine` (SRP) → `reviewer` → `archiver`; `guard` (Watchdog) |
 | Database | `db/` | `db_connection.py` (SQLite/PG thin adapter + ThreadedConnectionPool); `db_tools.py` |
-| Vision | `vision/` | `vision_detector`, `quality_tools`, `motion_filter`, `frame_io`, `production_tools` |
+| Vision | `vision/` | `vision_detector`, `quality_tools`, `motion_filter`, `frame_io`, `production_tools`; `foundation_models` (CLIP/SAM, opt-in) |
 | Labeling | `labeling/` | `labeling_export`, `labeled_return`, `annotation_upload` |
-| Utils | `utils/` | logging (+ JsonFormatter), startup, fingerprinter, retry_utils, file_tools, notifier, time_utils |
+| Utils | `utils/` | logging (+ JsonFormatter), startup, fingerprinter, retry_utils, file_tools, notifier, time_utils, `system_probe`, `usage_tracker` |
 | Config | `config/` | `settings.yaml`; env override: `DATAFACTORY_*`, `DATAFACTORY_QT__*`, `DATAFACTORY_PS__*` |
 | Storage | `storage/` | raw, archive, rejected, redundant, quarantine, reports, for_labeling, labeled_return, training |
 | DB files | `db/` (data) | PostgreSQL (prod) or `factory_admin.db` SQLite (dev) |
@@ -141,6 +147,7 @@ See **docs/architecture.md** and **ROOT_LAYOUT.md** for full directory layout.
 | **v3.5** | P0–P3 hardening: PG connection pool, section-level env override, JSON logging, `/health` in guard mode | ✅ |
 | **v3.6** | Refinery labeling pool stratified sampling by video; IoU consistency alert with threshold tuning advice | ✅ |
 | **v3.8** | Mining augmentation: `--augment mining` preset (blur, erasing, rotation, brightness); MLflow tracking | ✅ |
+| **v3.9** | CLIP/SAM foundation models (opt-in, graceful degrade): semantic dedup, diversity sampling, scene-adaptive QC thresholds, SAM polygon pre-annotation; hardware auto-detect (`system_probe`); feature usage tracking (`usage_tracker`); `tools.py` ops CLI | ✅ |
 | **v4.x** | Multimodal, FFT, Edge multi-node, access control, federated augmentation | Design done |
 
 See **[CHANGELOG.md](CHANGELOG.md)** for full per-version details.
@@ -160,6 +167,10 @@ See **[CHANGELOG.md](CHANGELOG.md)** for full per-version details.
 | `python scripts/mlflow/compare_models.py --new X.pt --baseline Y.pt --data DIR` | A/B model comparison |
 | `python scripts/mlflow/register_model.py path/to/model.pt --name vehicle_detector` | Register model to Registry |
 | `python scripts/db/migrate_sqlite_to_pg.py` | Idempotent SQLite → PostgreSQL migration |
+| `python tools.py --probe` | Hardware detection: device, RAM/VRAM, auto-configured model sizes |
+| `python tools.py --test [--gate N]` | Full-pipeline end-to-end test in temp env, no real storage touched |
+| `python tools.py --usage-report [--days N]` | Feature usage report for the last N days (default 30) |
+| `python tools.py --usage-reset FEATURE\|all` | Reset usage counter for one feature or all |
 
 ---
 
@@ -177,6 +188,7 @@ All settings live in `config/settings.yaml`. Key sections:
 | `mlflow` | Tracking URI, experiment name |
 | `labeled_return` | IoU consistency threshold, alert email |
 | `rolling_cleanup` | Log and report retention (days) |
+| `foundation_models` | CLIP/SAM opt-in flags (all `false` by default); `override: true` disables hardware auto-config |
 
 **Environment overrides** — no need to edit YAML for deployment:
 

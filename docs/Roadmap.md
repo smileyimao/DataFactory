@@ -82,6 +82,7 @@
 | **v3.5** | ✅ 完成 | 可观测性双看板：SENTINEL-1 帧级遥测（port 8766）+ HQ Global Command Center（port 8767）|
 | **v3.6** | ✅ 完成 | HQ 全屏适配 + 白底修复 + 实时天气（Open-Meteo）+ DataFactory 品牌徽标；SENTINEL-1 同步全屏 |
 | **v3.7** | ✅ 完成 | Site Status 实时本地时间（pytz）+ OpenWeatherMap 真实天气（API Key）；Flask 端点 `/api/sites/time` `/api/sites/weather`；`engines/site_info.py` 10 分钟缓存 |
+| **v3.9** | ✅ 完成 | CLIP/SAM 基础模型集成（opt-in，缺包优雅降级）：语义去重、FPS 多样性采样、场景自适应阈值、SAM polygon 预标注；硬件自动检测（`system_probe`）；功能使用追踪（`usage_tracker`）；`tools.py` 运维 CLI |
 | **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
 | **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制、HQ 真实数据接入 |
 
@@ -101,8 +102,8 @@
 | 单一入口 | main.py（单次 / --guard） | 易测试易部署 |
 | 启动自检 | startup_self_check | 路径与可写性校验 |
 | 黄金测试（可选） | startup_golden_run | 真实 QC 冒烟 |
-| 冒烟 / 全链路测试 | pytest tests/e2e/, main.py --test | QC 冒烟、全流程、Guard 模式 |
-| 单元 / 集成测试 | pytest tests/ -v -m "not e2e" | unit/integration/api 层 |
+| 冒烟 / 全链路测试 | `pytest tests/ -m slow`, `tools.py --test` | QC 冒烟、全流程、Guard 模式 |
+| 单元 / 集成测试 | `pytest tests/ -v -m "not slow"` | unit/integration/api 层 |
 | 环境重置 | scripts/reset_factory.py, reset_config.py | dry-run / for-test / db |
 | 版本可追溯 | version_mapping, version_info.json, path_info | 每批次规则/模型版本可审计 |
 | **数据库** | **PostgreSQL（docker compose up -d）** | **DATABASE_URL 必须设置，未设置报错退出** |

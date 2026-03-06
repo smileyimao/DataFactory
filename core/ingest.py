@@ -5,8 +5,10 @@ import logging
 from typing import List, Optional, Tuple
 
 from utils import file_tools, fingerprinter, retry_utils
+from utils.usage_tracker import track
 from db import db_tools
 from vision import modality_handlers
+from vision.foundation_models import load_clip_embedder
 from config import config_loader
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
     Ingest 预检：dedup + 首帧解码检查。失败项移入 quarantine，并记录日志。
     返回 (通过预检的路径列表, 统计 {"quarantine_duplicate": N, "quarantine_decode_failed": N})。
     """
+    track("ingest_video")
     ingest_cfg = cfg.get("ingest", {})
     if not ingest_cfg.get("pre_filter_enabled", False):
         return video_paths, {"quarantine_duplicate": 0, "quarantine_decode_failed": 0}
@@ -75,8 +78,15 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
     decode_check = ingest_cfg.get("decode_check_at_ingest", True)
     db_path = cfg.get("paths", {}).get("db_url", "")
 
+    # CLIP 语义去重初始化
+    fm_cfg = cfg.get("foundation_models", {})
+    semantic_dedup_clip = fm_cfg.get("clip_enabled") and fm_cfg.get("clip_semantic_dedup_enabled")
+    clip_embedder = load_clip_embedder(cfg) if semantic_dedup_clip else None
+    seen_clip_embs: list = []
+    dedup_thr = float(fm_cfg.get("clip_semantic_dedup_threshold", 0.98))
+
     passed: List[str] = []
-    stats = {"quarantine_duplicate": 0, "quarantine_decode_failed": 0}
+    stats = {"quarantine_duplicate": 0, "quarantine_decode_failed": 0, "quarantine_semantic_dup": 0}
     seen_fp: set = set()
 
     try:
@@ -101,6 +111,20 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
                     continue
                 seen_fp.add(fp)
 
+                # CLIP 语义去重（MD5 通过后再检查语义相似度）
+                if clip_embedder:
+                    track("clip_dedup")
+                    try:
+                        emb = clip_embedder.get_embedding(path)
+                        if clip_embedder.is_semantic_duplicate(emb, seen_clip_embs, dedup_thr):
+                            _move_to_quarantine(path, "semantic_dup", cfg)
+                            stats["quarantine_semantic_dup"] += 1
+                            logger.info("CLIP 语义去重: %s", os.path.basename(path))
+                            continue
+                        seen_clip_embs.append(emb)
+                    except Exception as e:
+                        logger.warning("CLIP 语义去重异常跳过: %s", e)
+
         # 2. Decode check（按 modality 分发，v2.9 解耦）
         if decode_check:
             if not modality_handlers.decode_check(path, cfg):
@@ -111,6 +135,6 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
 
         passed.append(path)
 
-    if stats["quarantine_duplicate"] or stats["quarantine_decode_failed"]:
-        print(f"   📋 [Ingest 预检] 共隔离 {stats['quarantine_duplicate']} 重复 + {stats['quarantine_decode_failed']} 解码失败，{len(passed)} 个进入 pipeline")
+    if stats["quarantine_duplicate"] or stats["quarantine_decode_failed"] or stats["quarantine_semantic_dup"]:
+        print(f"   📋 [Ingest 预检] 共隔离 {stats['quarantine_duplicate']} 重复 + {stats['quarantine_decode_failed']} 解码失败 + {stats['quarantine_semantic_dup']} 语义重复，{len(passed)} 个进入 pipeline")
     return passed, stats

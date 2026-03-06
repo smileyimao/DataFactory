@@ -1,7 +1,7 @@
 # P3 代码格式化与类型检查（black + isort + mypy）
 [project]
 name = "datafactory"
-version = "2.9"
+version = "3.9"
 description = "工业视频质检流水线"
 requires-python = ">=3.9"
 
@@ -38,4 +38,5 @@ markers = [
     "unit: 单元测试",
     "integration: 集成测试",
     "e2e: 端到端（需测试视频）",
+    "slow: 耗时较长，日常 CI 用 -m 'not slow' 跳过",
 ]

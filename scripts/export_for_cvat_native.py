@@ -130,22 +130,50 @@ def export_cvat_native(for_labeling_dir: str, output_zip: str, class_names: list
             ybr = (cy + bh / 2) * h
             boxes.append((class_names[cid], xtl, ytl, xbr, ybr, conf))
 
+        # 读取 SAM polygon sidecar（若存在）
+        import json as _json
+        poly_path = os.path.join(images_dir, base + ".poly.json")
+        poly_map = {}  # label -> list of point-lists（先进先出）
+        if os.path.isfile(poly_path):
+            try:
+                for entry in _json.load(open(poly_path, encoding="utf-8")):
+                    poly_map.setdefault(entry["label"], []).append(
+                        (entry["points"], entry.get("score"))
+                    )
+            except Exception:
+                pass
+
         img_el = ET.SubElement(root, "image", id=str(idx), name=safe_name, width=str(w), height=str(h))
         for label, xtl, ytl, xbr, ybr, conf in boxes:
-            box = ET.SubElement(
-                img_el, "box",
-                label=label,
-                source="auto",
-                occluded="0",
-                xtl=f"{xtl:.2f}",
-                ytl=f"{ytl:.2f}",
-                xbr=f"{xbr:.2f}",
-                ybr=f"{ybr:.2f}",
-                z_order="0",
-            )
-            if conf is not None:
-                attr_el = ET.SubElement(box, "attribute", name="confidence")
-                attr_el.text = f"{conf:.4f}"
+            if label in poly_map and poly_map[label]:
+                pts, score = poly_map[label].pop(0)
+                pts_str = ";".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+                poly_el = ET.SubElement(
+                    img_el, "polygon",
+                    label=label,
+                    source="auto",
+                    occluded="0",
+                    z_order="0",
+                    points=pts_str,
+                )
+                use_conf = conf if conf is not None else score
+                if use_conf is not None:
+                    ET.SubElement(poly_el, "attribute", name="confidence").text = f"{use_conf:.4f}"
+            else:
+                box = ET.SubElement(
+                    img_el, "box",
+                    label=label,
+                    source="auto",
+                    occluded="0",
+                    xtl=f"{xtl:.2f}",
+                    ytl=f"{ytl:.2f}",
+                    xbr=f"{xbr:.2f}",
+                    ybr=f"{ybr:.2f}",
+                    z_order="0",
+                )
+                if conf is not None:
+                    attr_el = ET.SubElement(box, "attribute", name="confidence")
+                    attr_el.text = f"{conf:.4f}"
 
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")

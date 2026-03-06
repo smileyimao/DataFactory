@@ -9,6 +9,7 @@ from utils import file_tools
 
 _DEFAULT_BASE_DIR: Optional[str] = None
 _base_dir_lock = threading.Lock()  # 保护 _DEFAULT_BASE_DIR 并发读写
+_probe_printed = False             # 确保启动打印只输出一次
 
 # 环境变量覆盖前缀（如 DATA_WAREHOUSE 覆盖 paths.data_warehouse）
 _ENV_PREFIX = "DATAFACTORY_"
@@ -164,6 +165,24 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     # 放在所有 setdefault 之后，确保即使 YAML 未配置某节也能被 env 覆盖
     _apply_section_env_overrides(data.get("quality_thresholds", {}), "QT")
     _apply_section_env_overrides(data.get("production_setting", {}), "PS")
+
+    # ── 硬件自动检测与 foundation_models 配置覆盖 ────────────────────────
+    global _probe_printed
+    fm = data.setdefault("foundation_models", {})
+    if not fm.get("override", False):
+        try:
+            from utils.system_probe import detect_capabilities, auto_configure, print_system_info
+            caps = detect_capabilities()
+            auto_cfg = auto_configure(caps)
+            # 只覆盖 auto_configure 返回的键，不清除 YAML 中其他手动项
+            for k, v in auto_cfg.items():
+                fm[k] = v
+            if not _probe_printed:
+                print_system_info(caps, fm)
+                _probe_printed = True
+        except Exception as e:
+            logger.debug("system_probe 跳过: %s", e)
+
     return data
 
 

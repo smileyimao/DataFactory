@@ -4,6 +4,22 @@ All notable changes to DataFactory are documented here.
 
 ---
 
+## v3.9 — Foundation Models + Ops Tooling
+
+- **`vision/foundation_models.py`** (new): `ClipEmbedder` (semantic dedup, FPS diversity sampling, scene classification) + `SamRefiner` (bbox→polygon); lazy-loaded, gracefully degrade to `None` when packages absent
+- **Feature 1 — CLIP semantic dedup** (`core/ingest.py`): cosine-similarity gate after MD5 dedup; near-duplicates move to `quarantine/semantic_dup/`; opt-in via `clip_semantic_dedup_enabled`
+- **Feature 2 — CLIP diversity sampling** (`labeling/labeling_export.py`): farthest-point sampling replaces stratified-by-video in refinery export; opt-in via `clip_diversity_sampling_enabled`; fallback to stratified on error
+- **Feature 3 — CLIP scene classification** (`core/qc_engine.py`): per-video scene label (e.g. `underground_tunnel`); `scene_thresholds` in config auto-overrides `quality_thresholds`; opt-in via `clip_scene_classify_enabled`
+- **Feature 4 — SAM polygon pre-annotation** (`labeling/annotation_upload.py`, `scripts/export_for_cvat_native.py`): YOLO bbox → SAM mask → `{base}.poly.json` sidecar → `<polygon>` in CVAT native XML; opt-in via `sam_cvat_enabled`
+- **`utils/system_probe.py`** (new): `detect_capabilities()` (CPU/GPU/RAM/VRAM/device/Apple Silicon); `auto_configure()` 6-tier decision tree; `print_system_info()`; runs at `load_config()` time, respects `foundation_models.override: true`
+- **`utils/usage_tracker.py`** (new): `track(feature)` / `report(days)` / `reset(feature|None)`; atomic JSON persistence; daily bucketing; 3-tier suggestion (✅ / ⚠️ / ❌)
+- **`tools.py`** (new, project root): ops CLI — `--probe`, `--test [--gate N]`, `--usage-report [--days N]`, `--usage-reset FEATURE|all`; full-pipeline test runs in `tempfile.TemporaryDirectory`, never touches real storage
+- **`main.py`** cleanup: `--test`, `--usage-report`, `--usage-reset` removed (now in `tools.py`); pipeline-only flags remain
+- **`config/settings.yaml`**: new `§10 foundation_models:` section (all flags `false`; `override: false`; `scene_thresholds` presets for underground/dusty/open-pit)
+- **`pyproject.toml`**: version `3.9`; `slow` pytest marker registered
+
+---
+
 ## v3.8 — Mining Data Augmentation
 
 - `train_model.py --augment mining/default/off` CLI flag

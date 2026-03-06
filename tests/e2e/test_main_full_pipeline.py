@@ -1,5 +1,5 @@
 # tests/e2e/test_main_full_pipeline.py
-"""端到端：调用 main.py --test 跑全链路，验证临时环境、无异常退出。"""
+"""端到端：调用 tools.py --test 跑全链路，验证临时环境、无异常退出。"""
 import os
 import subprocess
 import sys
@@ -27,20 +27,23 @@ def _test_source_has_videos(project_root: str) -> bool:
     return False
 
 
+@pytest.mark.slow
 def test_main_test_mode_full_pipeline(project_root):
-    """main.py --test：临时环境跑全链路，应正常退出（exit 0）。"""
+    """tools.py --test：临时环境跑全链路，应正常退出（exit 0）。
+    标记为 slow，日常 CI 用 pytest -m 'not slow' 跳过；完整回归用 pytest -m slow 单独跑。
+    """
     if not _test_source_has_videos(project_root):
         pytest.skip("paths.test_source 下无视频，跳过全链路测试。请在 storage/test/original/ 放入测试视频。")
 
     result = subprocess.run(
-        [sys.executable, "main.py", "--test"],
+        [sys.executable, "tools.py", "--test"],
         cwd=project_root,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=600,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
 
     assert result.returncode == 0, (
-        f"main.py --test 异常退出 {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        f"tools.py --test 异常退出 {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )

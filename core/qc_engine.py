@@ -11,8 +11,10 @@ from typing import List, Dict, Any, Tuple, Optional
 from config import config_loader
 from utils import time_utils
 from utils import fingerprinter, notifier, report_tools, retry_utils
+from utils.usage_tracker import track
 from db import db_tools
 from vision import production_tools, vision_detector
+from vision.foundation_models import load_clip_embedder
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ def _collect_fingerprints(video_paths: List[str]) -> Dict[str, str]:
 
 def _filter_duplicates(video_paths: List[str], path_to_md5: Dict[str, str], db_path: str) -> List[str]:
     """返回需要抽检的非重复文件列表（过滤历史 DB 重复 + 批次内重复）。"""
+    track("qc_hash_dedup")
     seen_fp: set = set()
     paths_need_sample: List[str] = []
     for v_path in video_paths:
@@ -43,6 +46,28 @@ def _filter_duplicates(video_paths: List[str], path_to_md5: Dict[str, str], db_p
         if fp:
             seen_fp.add(fp)
     return paths_need_sample
+
+
+def _extract_first_frame_tmp(video_path: str) -> Optional[str]:
+    """提取视频中间帧为临时文件（供 CLIP 分类用）。失败返回 None。"""
+    try:
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total > 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
+        ret, frame = cap.read()
+        cap.release()
+        if not ret:
+            return None
+        import tempfile as _tf
+        fd, tmp_path = _tf.mkstemp(suffix=".jpg")
+        os.close(fd)
+        cv2.imwrite(tmp_path, frame)
+        return tmp_path
+    except Exception as e:
+        logger.debug("提取帧失败: %s", e)
+        return None
 
 
 def _run_sampling(
@@ -60,17 +85,66 @@ def _run_sampling(
     backoff = retry_cfg.get("backoff_seconds", 1.0)
     results: List[Dict[str, Any]] = []
 
+    # CLIP 场景分类初始化
+    fm_cfg = cfg.get("foundation_models", {})
+    scene_classify = fm_cfg.get("clip_enabled") and fm_cfg.get("clip_scene_classify_enabled")
+    clip_embedder = load_clip_embedder(cfg) if scene_classify else None
+    scene_thresholds = fm_cfg.get("scene_thresholds", {})
+
     with tempfile.TemporaryDirectory(prefix="datafactory_qc_") as temp_qc:
         try:
-            if paths_need_sample:
+            if not paths_need_sample:
+                with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
+                    json.dump([], f, ensure_ascii=False)
+                print("  （本批次均为重复，已跳过抽检）")
+            elif clip_embedder:
+                # 逐视频运行：每个视频按场景分类覆写质量阈值
+                merged: List[Dict[str, Any]] = []
+                for video_path in paths_need_sample:
+                    cfg_video = cfg
+                    tmp_frame = None
+                    try:
+                        classify_path = video_path
+                        ext = os.path.splitext(video_path)[1].lower()
+                        if ext not in {".jpg", ".jpeg", ".png", ".bmp"}:
+                            tmp_frame = _extract_first_frame_tmp(video_path)
+                            if tmp_frame:
+                                classify_path = tmp_frame
+                        scene = clip_embedder.classify_scene(classify_path)
+                        track("clip_scene_classify")
+                        logger.info("场景分类: %s → %s", os.path.basename(video_path), scene)
+                        override = scene_thresholds.get(scene, {})
+                        if override:
+                            cfg_video = dict(cfg)
+                            cfg_video["quality_thresholds"] = {
+                                **cfg.get("quality_thresholds", {}), **override
+                            }
+                    except Exception as e:
+                        logger.warning("CLIP 场景分类异常: %s", e)
+                    finally:
+                        if tmp_frame and os.path.isfile(tmp_frame):
+                            os.unlink(tmp_frame)
+
+                    with tempfile.TemporaryDirectory(prefix="datafactory_v_") as temp_v:
+                        try:
+                            production_tools.run_production(
+                                [video_path], temp_v, batch_id, cfg_video,
+                                limit_seconds=qc_sample_seconds, reports_archive_dir=report_dir,
+                            )
+                            mf = os.path.join(temp_v, "manifest.json")
+                            if os.path.isfile(mf):
+                                with open(mf, "r", encoding="utf-8") as f:
+                                    merged.extend(json.load(f))
+                        except Exception as e:
+                            logger.exception("抽检异常 [%s]: %s", os.path.basename(video_path), e)
+                # 写合并 manifest 供后续读取
+                with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
+                    json.dump(merged, f, ensure_ascii=False)
+            else:
                 production_tools.run_production(
                     paths_need_sample, temp_qc, batch_id, cfg,
                     limit_seconds=qc_sample_seconds, reports_archive_dir=report_dir,
                 )
-            else:
-                with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
-                    json.dump([], f, ensure_ascii=False)
-                print("  （本批次均为重复，已跳过抽检）")
 
             os.makedirs(source_archive_dir, exist_ok=True)
             try:
@@ -112,10 +186,12 @@ def _build_rule_stats(src: str, by_source_raw: dict, qc_cfg: dict) -> dict:
             fail.append(f"太暗 {mn:.1f}<{min_br_th}")
         if mx > max_br_th:
             fail.append(f"过曝 {mx:.1f}>{max_br_th}")
+        track("qc_overexpose")
         stats["brightness"] = {"min": mn, "max": mx, "pass": not fail, "fail_reason": "; ".join(fail) if fail else None}
     bls = raw.get("bl") or []
     if bls:
         mn = min(bls)
+        track("qc_blur")
         stats["blur"] = {"min": mn, "threshold": min_bl_th, "pass": mn >= min_bl_th, "fail_reason": f"模糊 {mn:.1f}<{min_bl_th}" if mn < min_bl_th else None}
     jitters = raw.get("jitter") or []
     if jitters:

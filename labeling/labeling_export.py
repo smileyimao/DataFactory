@@ -14,6 +14,8 @@ import shutil
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
+from utils.usage_tracker import track
+
 logger = logging.getLogger(__name__)
 
 # 常见可标注媒体扩展（含视频，用于批次浏览）
@@ -331,7 +333,27 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
     refinery_added = 0
     if refinery_sample_rate > 0 and fuel_dir:
         refinery_items = _collect_media_from_dir(fuel_dir)
-        sampled = _stratified_sample_by_video(refinery_items, refinery_sample_rate)
+
+        # CLIP 多样性采样（开关控制，缺包回退到分层抽样）
+        fm_cfg = cfg.get("foundation_models", {})
+        clip_diversity = fm_cfg.get("clip_enabled") and fm_cfg.get("clip_diversity_sampling_enabled")
+        k = max(1, math.ceil(len(refinery_items) * refinery_sample_rate))
+        if clip_diversity and len(refinery_items) > k:
+            try:
+                from vision.foundation_models import load_clip_embedder
+                embedder = load_clip_embedder(cfg)
+                if embedder:
+                    embeddings = [embedder.get_embedding(it["path"]) for it in refinery_items]
+                    sampled = embedder.diversity_sample(refinery_items, embeddings, k)
+                    track("clip_diversity_sample")
+                    logger.info("CLIP 多样性采样: %d → %d 帧", len(refinery_items), len(sampled))
+                else:
+                    sampled = _stratified_sample_by_video(refinery_items, refinery_sample_rate)
+            except Exception as e:
+                logger.warning("CLIP 多样性采样失败，回退: %s", e)
+                sampled = _stratified_sample_by_video(refinery_items, refinery_sample_rate)
+        else:
+            sampled = _stratified_sample_by_video(refinery_items, refinery_sample_rate)
         r_subdir = paths.get("batch_subdirs", {}).get("refinery", "refinery")
         for item in sampled:
             src_path = item["path"]

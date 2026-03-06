@@ -4,6 +4,8 @@ import logging
 import os
 import sys
 
+from utils.usage_tracker import track
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +52,77 @@ def upload(cfg: dict, task_name: str = "DataFactory") -> str:
     return ""
 
 
+def _apply_sam_to_images_dir(images_dir: str, sam, coco_names: list) -> None:
+    """
+    遍历 images_dir 中图片，读取同名 YOLO .txt，调 SAM 生成 polygon，
+    写出 {base}.poly.json: [{"label": str, "points": [[x,y],...], "score": float}]
+    """
+    import json as _json
+    try:
+        import cv2
+        from PIL import Image as _PILImage
+    except ImportError:
+        logger.warning("cv2/Pillow 未安装，SAM 预标注跳过")
+        return
+
+    IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp"}
+    for fname in sorted(os.listdir(images_dir)):
+        ext = os.path.splitext(fname)[1].lower()
+        if ext not in IMAGE_EXT:
+            continue
+        img_path = os.path.join(images_dir, fname)
+        base = os.path.splitext(fname)[0]
+        txt_path = os.path.join(images_dir, base + ".txt")
+        if not os.path.isfile(txt_path):
+            continue
+
+        # 读图尺寸（用 PIL，避免 cv2 解码失败）
+        try:
+            with _PILImage.open(img_path) as _im:
+                w, h = _im.size
+        except Exception as e:
+            logger.debug("读图尺寸失败 %s: %s", fname, e)
+            continue
+
+        # 解析 YOLO .txt → 像素 bbox
+        boxes_xyxy = []
+        with open(txt_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 5:
+                    continue
+                try:
+                    cid = int(parts[0])
+                    cx, cy, bw, bh = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+                except (ValueError, IndexError):
+                    continue
+                label = coco_names[cid] if cid < len(coco_names) else str(cid)
+                x1 = (cx - bw / 2) * w
+                y1 = (cy - bh / 2) * h
+                x2 = (cx + bw / 2) * w
+                y2 = (cy + bh / 2) * h
+                boxes_xyxy.append((label, x1, y1, x2, y2))
+
+        if not boxes_xyxy:
+            continue
+
+        # 读 BGR 图（SAM 需要）
+        img_bgr = cv2.imread(img_path)
+        if img_bgr is None:
+            continue
+
+        try:
+            polygons = sam.boxes_to_polygons(img_bgr, boxes_xyxy)
+        except Exception as e:
+            logger.warning("SAM boxes_to_polygons 失败 %s: %s", fname, e)
+            continue
+
+        if polygons:
+            poly_path = os.path.join(images_dir, base + ".poly.json")
+            with open(poly_path, "w", encoding="utf-8") as f:
+                _json.dump(polygons, f, ensure_ascii=False)
+
+
 def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str) -> str:
     """CVAT 上传驱动：导出带置信度标注的图片 → 打包 zip → 上传 CVAT。"""
     import shutil
@@ -68,6 +141,19 @@ def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str)
     labeling_export.export_manifest_for_labeling(
         archive_dir, for_labeling, max_batches=1, cfg=cfg,
     )
+
+    # SAM bbox→polygon 预标注（开关控制）
+    fm_cfg = cfg.get("foundation_models", {})
+    if fm_cfg.get("sam_enabled") and fm_cfg.get("sam_cvat_enabled"):
+        try:
+            from vision.foundation_models import load_sam_refiner
+            sam = load_sam_refiner(cfg)
+            if sam:
+                _apply_sam_to_images_dir(images_dir, sam, _COCO_NAMES)
+                track("sam_refine")
+                logger.info("SAM: polygon mask 已生成 -> %s", images_dir)
+        except Exception as e:
+            logger.warning("SAM 预标注失败，跳过: %s", e)
 
     upload_pseudo = cfg.get("cvat", {}).get("upload_pseudo_labels", True)
     z1 = os.path.join(for_labeling, "for_cvat.zip")
