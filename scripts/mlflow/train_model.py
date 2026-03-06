@@ -167,6 +167,41 @@ def _build_yolo_dataset(
     return data_yaml, len(train_set), len(val_set)
 
 
+# ─── 数据增强预设 ─────────────────────────────────────────────────────────────
+
+# 矿山场景在线增强参数（YOLOv8 train() 直接接收）
+# 覆盖 YOLOv8 默认值，针对矿山环境特点强化：
+#   hsv_v    ↑  模拟地下/地面不同照明条件（强光/弱光）
+#   blur     ↑  模拟粉尘、雾气、镜头污染
+#   erasing  ↑  模拟设备/人员被障碍物部分遮挡
+#   degrees  ↑  模拟坡道、颠簸路面导致的画面倾斜
+#   mosaic      保持默认，有效扩充小数据集多样性
+_AUGMENT_PRESETS = {
+    "off": {
+        "hsv_h": 0.0, "hsv_s": 0.0, "hsv_v": 0.0,
+        "degrees": 0.0, "translate": 0.0, "scale": 0.0,
+        "fliplr": 0.0, "mosaic": 0.0, "erasing": 0.0,
+    },
+    "default": {},  # 使用 YOLOv8 内置默认值，不额外传参
+    "mining": {
+        "hsv_v": 0.6,       # 亮度随机变化（默认 0.4）→ 模拟强光/弱光
+        "hsv_s": 0.7,       # 饱和度（保持默认）
+        "degrees": 5.0,     # ±5° 旋转（默认 0）→ 模拟颠簸/坡道
+        "translate": 0.1,   # 平移（默认）
+        "scale": 0.5,       # 缩放（默认）
+        "fliplr": 0.5,      # 水平翻转（默认）
+        "mosaic": 1.0,      # Mosaic 拼接（默认，小数据集关键）
+        "erasing": 0.4,     # 随机擦除（默认 0）→ 模拟遮挡
+        "blur": 3,          # 模糊核最大值（默认 0）→ 模拟粉尘/污染镜头
+    },
+}
+
+
+def _get_augment_kwargs(preset: str) -> dict:
+    """返回对应预设的增强参数字典，'default' 返回空字典（使用 YOLOv8 内置默认）。"""
+    return dict(_AUGMENT_PRESETS.get(preset, {}))
+
+
 # ─── 指标提取 ────────────────────────────────────────────────────────────────
 
 def _extract_metrics(results) -> Dict[str, float]:
@@ -341,6 +376,9 @@ def main() -> int:
                         help="验证集比例（默认 0.2）")
     parser.add_argument("--dry-run",    action="store_true",
                         help="统计数据集后退出，不实际训练")
+    parser.add_argument("--augment",    type=str,   default="mining",
+                        choices=["off", "default", "mining"],
+                        help="数据增强预设：off=关闭, default=YOLOv8默认, mining=矿山场景强化（默认）")
     args = parser.parse_args()
 
     from config import config_loader
@@ -380,6 +418,7 @@ def main() -> int:
     print(f"  类别({len(class_names)}): {class_names}")
     print(f"  基础模型:  {base_model}")
     print(f"  设备:      {_detect_device()}")
+    print(f"  增强预设:  {args.augment}")
 
     if not samples:
         print("\n❌ 没有找到训练数据（image + label 对）。")
@@ -425,6 +464,7 @@ def main() -> int:
         except Exception:
             pass
 
+        augment_kwargs = _get_augment_kwargs(args.augment)
         model = YOLO(base_model)
         results = model.train(
             data=data_yaml,
@@ -435,6 +475,7 @@ def main() -> int:
             project=run_dir,
             name="train",
             exist_ok=True,
+            **augment_kwargs,
         )
     except KeyboardInterrupt:
         print("\n⚠️  训练被中断")
@@ -467,16 +508,17 @@ def main() -> int:
         _setup_mlflow(cfg)
 
         params = {
-            "base_model": os.path.basename(str(base_model)),
-            "epochs":     args.epochs,
-            "imgsz":      args.imgsz,
-            "batch":      args.batch,
-            "device":     _detect_device(),
-            "nc":         len(class_names),
-            "classes":    ",".join(class_names),
-            "n_train":    n_train,
-            "n_val":      n_val,
-            "val_ratio":  args.val_ratio,
+            "base_model":    os.path.basename(str(base_model)),
+            "epochs":        args.epochs,
+            "imgsz":         args.imgsz,
+            "batch":         args.batch,
+            "device":        _detect_device(),
+            "nc":            len(class_names),
+            "classes":       ",".join(class_names),
+            "n_train":       n_train,
+            "n_val":         n_val,
+            "val_ratio":     args.val_ratio,
+            "augment_preset": args.augment,
         }
         tags = {
             "training.run_id":    run_id,

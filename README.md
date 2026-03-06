@@ -107,6 +107,7 @@ For readers familiar with industrial / MLOps terminology, the design maps as fol
 | **v3.3** | **Package cleanup**: `utils/` (logging, startup, fingerprinter, retry, file_tools, notifier, time_utils); `scripts/` reorganized into `cvat/` `mlflow/` `db/`; P0 disk protection | ✅ |
 | **v3.4** | **Domain-driven structure**: `engines/` split into `db/` (db_connection, db_tools), `vision/` (detector, quality, motion, frame_io, production_tools), `labeling/` (export, return, upload) | ✅ |
 | **v3.5** | **P0–P3 production hardening**: pipeline top-level exception capture; atomic manifest write; guard recursion → loop; SQLite guard; threading.Lock on global config; qc_engine SRP (8 sub-functions); PG `ThreadedConnectionPool`; `DATAFACTORY_QT__*` / `DATAFACTORY_PS__*` env override; JSON structured logging; `/health` endpoint (guard mode) | ✅ |
+| **v3.8** | **Mining data augmentation**: online augmentation presets in `train_model.py` (`--augment mining/default/off`); mining preset: brightness variation, blur (dust), random erasing (occlusion), rotation (rough terrain); augment_preset logged to MLflow | ✅ |
 | **v4** | Multimodal, FFT, Edge, multi-node, access control | Design done, pending implementation |
 
 ---
@@ -237,7 +238,8 @@ See **docs/architecture.md**, **docs/architecture_mindmap.md** (architecture ske
 - **v3.3**: Done. **Package cleanup**: utils/ extracted; scripts/ reorganized (cvat/, mlflow/, db/); P0 disk protection.
 - **v3.4**: Done. **Domain-driven structure**: engines/ → db/ + vision/ + labeling/.
 - **v3.5**: Done. **P0–P3 production hardening**: exception capture, atomic writes, recursion fix, SQLite guard, thread safety, SRP, PG connection pool, env override, JSON logging, /health endpoint.
-- **v3.6**: Next. Refinery labeling pool stratified sampling + IoU consistency alert + configurable threshold step.
+- **v3.8**: Done. **Mining data augmentation**: `--augment mining` preset in train_model.py; brightness, blur, erasing, rotation; MLflow tracking.
+- **v3.x → v4**: Offline augmentation, synthetic data (game engine / Omniverse), generative AI augmentation, federated data augmentation. See docs/Roadmap.md.
 - **v4.x**: Design done, pending implementation. **Scale & extension**: multimodal, Temporal Sync (observed_at), Resource Locking (Edge), FFT, Edge, multi-node, access control.
 
 See **docs/Roadmap.md**.
