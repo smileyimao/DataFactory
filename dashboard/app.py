@@ -149,7 +149,7 @@ def main():
     cfg = config_loader.load_config()
     port = cfg.get("paths", {}).get("dashboard_port") or os.environ.get("DASHBOARD_PORT", "8765")
     port = int(port)
-    print(f"🏭 厂长中控台: http://127.0.0.1:{port}")
+    print(f"\n  Review Dashboard : http://127.0.0.1:{port}\n")
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 

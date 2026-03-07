@@ -91,7 +91,7 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
 
     try:
         from tqdm import tqdm
-        path_iter = tqdm(video_paths, desc="Ingest 预检", unit="文件")
+        path_iter = tqdm(video_paths, desc="Ingest  pre-filter", unit="file")
     except ImportError:
         path_iter = video_paths
     for path in path_iter:

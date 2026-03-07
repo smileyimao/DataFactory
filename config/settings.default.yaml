@@ -22,13 +22,14 @@ logging:
 paths:
   raw_video:          "storage/raw"
   data_warehouse:     "storage/archive"
-  rejected_material:  "storage/rejected"
-  redundant_archives: "storage/redundant"
-  quarantine:         "storage/quarantine"
+  rejected_material:  "storage/rejected/quality"
+  redundant_archives: "storage/rejected/duplicate"
+  quarantine:         "storage/rejected/quarantine"
 
   labeling_export:    "storage/for_labeling"
   labeled_return:     "storage/labeled_return"
-  training:           "storage/training"
+  training:           "storage/training/dataset"
+  train_runs:         "storage/training/runs"
 
   reports:            "storage/reports"
   golden:             "storage/golden"

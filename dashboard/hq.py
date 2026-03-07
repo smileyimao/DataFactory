@@ -8,7 +8,7 @@
   python dashboard/hq.py --port 8900
   python dashboard/hq.py --no-db          # 强制 mock DB（离线调试用）
 
-依赖（同 sentinel.py，已在 requirements.txt 中）:
+依赖（同 sentinel.py，已在 pyproject.toml 中）:
   dash>=2.0  plotly>=5.0  pillow>=9.0  psutil>=5.0
 """
 import argparse
@@ -211,7 +211,7 @@ def _poll_db(db_url: str) -> dict:
         return _db_cache
 
     try:
-        from engines.db_connection import connect
+        from db.db_connection import connect
         conn = connect(db_url)
         cur  = conn.cursor()
 
@@ -267,7 +267,7 @@ from flask import jsonify
 @app.server.route("/api/sites/time")
 def api_sites_time():
     try:
-        from engines.site_info import get_site_times
+        from utils.site_info import get_site_times
         return jsonify(get_site_times())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -275,7 +275,7 @@ def api_sites_time():
 @app.server.route("/api/sites/weather")
 def api_sites_weather():
     try:
-        from engines.site_info import get_site_weather
+        from utils.site_info import get_site_weather
         return jsonify(get_site_weather())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -332,7 +332,7 @@ def refresh(_n, store):
     # ── 天气（Open-Meteo 10 分钟缓存）+ 实时本地时间 ────────────────────
     weather = _poll_weather()
     try:
-        from engines.site_info import get_site_times
+        from utils.site_info import get_site_times
         times = get_site_times()   # {"sudbury": "07:32", ...}（小写键）
         # 将本地时间注入 weather dict（dashboard layout 通过 w["local_time"] 读取）
         for name_upper, w in weather.items():
@@ -419,8 +419,7 @@ def main() -> None:
     else:
         print("[HQ] --no-db: 使用 Mock 数据")
 
-    print(f"[HQ] 看板: http://localhost:{args.port}")
-    print("[HQ] 停止: Ctrl-C")
+    print(f"\n  HQ Dashboard : http://127.0.0.1:{args.port}  (Ctrl-C to stop)\n")
     app.run(host="0.0.0.0", port=args.port, debug=False)
 
 

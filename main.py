@@ -53,45 +53,78 @@ def _collect_batch_stats(archive_dir: str, batch_prefix: str = "Batch_") -> dict
     return out
 
 
-def _print_pipeline_report(stats: dict, input_name: str, cvat_url: str = "") -> None:
-    """打印 Pipeline 统计报告。"""
+_VERSION = "3.9"
+
+_W = 56  # fixed-width ruler
+
+_DASHBOARDS = {
+    "Review":   ("http://127.0.0.1:8765", "python -m dashboard.app"),
+    "Sentinel": ("http://127.0.0.1:8766", "python dashboard/sentinel.py"),
+    "HQ":       ("http://127.0.0.1:8767", "python dashboard/hq.py"),
+}
+
+
+def _print_banner() -> None:
+    print(f"\n{'━' * _W}")
+    print(f"  DataFactory v{_VERSION}")
+    print(f"  Industrial Video QC Pipeline")
+    print(f"{'━' * _W}")
+
+
+def _print_dashboards() -> None:
+    cvat = os.environ.get("CVAT_LOCAL_URL", "")
+    print(f"\n{'─' * _W}")
+    print("  Dashboards")
+    print(f"{'─' * _W}")
+    for name, (url, cmd) in _DASHBOARDS.items():
+        print(f"  {name:<10} {url:<28} {cmd}")
+    if cvat:
+        print(f"  {'CVAT':<10} {cvat}")
+    print(f"{'─' * _W}\n")
+
+
+def _print_pipeline_report(stats: dict, input_name: str, cvat_url: str = "", elapsed_sec: float = 0) -> None:
     total = stats.get("total", 0) or 1
     with_pseudo = stats.get("with_pseudo", 0)
     refinery = stats.get("refinery", 0)
     inspection = stats.get("inspection", 0)
     pct = int(with_pseudo / total * 100) if total else 0
-    refinery_pct = int(refinery / total * 100) if total else 0
-    inspection_pct = int(inspection / total * 100) if total else 0
-    print(f"\n=== DataFactory Pipeline 报告 ===")
-    print(f"输入视频：{input_name}")
-    print(f"总关键帧：{total}")
-    print(f"自动标注：{with_pseudo}（{pct}%）")
-    print(f"refinery（高置信）：{refinery}（{refinery_pct}%）   # 伪标签可直接用")
-    print(f"inspection（待人工）：{inspection}（{inspection_pct}%） # 需人工标注或复核")
-    print("─" * 40)
-    print(f"人工工作量节省：约{pct}%")
+
+    mins, secs = divmod(int(elapsed_sec), 60)
+    time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+
+    print(f"\n{'━' * _W}")
+    print(f"  Batch complete — {time_str}")
+    print(f"{'─' * _W}")
+    print(f"  Input    {input_name}")
+    print(f"  Frames   {total} total | {refinery} refinery | {inspection} inspection")
+    print(f"  Pseudo   {with_pseudo} ({pct}% auto-labeled)")
     if cvat_url:
-        print(f"CVAT Task：{cvat_url}")
-    print()
+        print(f"  CVAT     {cvat_url}")
+    print(f"{'━' * _W}")
+    _print_dashboards()
 
 
 
 def main():
+    import time as _time
     from config import config_loader
     from utils import logging as log_config
     from core import pipeline
 
-    parser = argparse.ArgumentParser(description="DataFactory 集中质检复核")
+    parser = argparse.ArgumentParser(description="DataFactory — Industrial Video QC Pipeline")
     parser.add_argument("--gate", type=float, default=None, help="准入阈值 (%%)")
-    parser.add_argument("--guard", action="store_true", help="启动 Guard 模式：监控 raw_video，凑批后自动送厂")
-    parser.add_argument("--input", type=str, default="", help="指定单个视频路径，仅处理此文件")
-    parser.add_argument("--auto-cvat", action="store_true", help="pipeline 结束后自动创建 CVAT Task 并上传图片与伪标签")
-    parser.add_argument("--no-cvat", action="store_true", help="强制跳过标注平台上传（覆盖 CVAT_LOCAL_URL 自动触发）")
+    parser.add_argument("--guard", action="store_true", help="Guard 模式：持续监控 raw_video 并自动送厂")
+    parser.add_argument("--input", type=str, default="", help="指定单个视频路径")
+    parser.add_argument("--auto-cvat", action="store_true", help="自动上传标注到 CVAT")
+    parser.add_argument("--no-cvat", action="store_true", help="跳过 CVAT 上传")
     args = parser.parse_args()
+
+    _print_banner()
 
     config_loader.set_base_dir(BASE_DIR)
     cfg = config_loader.load_config()
-    log_config.setup_logging(BASE_DIR, cfg, console=True)  # 控制台输出进度，便于观察是否卡住
+    log_config.setup_logging(BASE_DIR, cfg, console=True)
     config_loader.init_storage_from_config(cfg)
 
     from utils import startup
@@ -106,11 +139,11 @@ def main():
 
     db_url = cfg.get("paths", {}).get("db_url")
     if not db_url:
-        print("❌ DATABASE_URL 未设置，请在 .env 中配置 DATABASE_URL=postgresql://...")
+        print("  [ERROR] DATABASE_URL 未设置，请在 .env 中配置\n")
         sys.exit(1)
     from db import db_tools
     if not db_tools.init_db(db_url):
-        print("❌ 数据库初始化失败，请检查 DATABASE_URL 配置与 PostgreSQL 是否运行。")
+        print("  [ERROR] 数据库初始化失败，请检查 PostgreSQL 是否运行\n")
         sys.exit(1)
 
     video_paths = None
@@ -118,18 +151,22 @@ def main():
     if args.input:
         p = os.path.abspath(os.path.expanduser(args.input))
         if not os.path.isfile(p):
-            print(f"❌ 文件不存在: {args.input}")
+            print(f"  [ERROR] 文件不存在: {args.input}\n")
             sys.exit(1)
         video_paths = [p]
         input_name = os.path.basename(p)
 
     if args.guard:
+        print(f"  Mode     Guard (watching storage/raw)\n")
+        _print_dashboards()
         from core import guard
         guard.run_guard()
     else:
+        print(f"  Mode     Single-run\n")
+        t0 = _time.monotonic()
         pipeline.run_smart_factory(gate_val=args.gate, video_paths=video_paths)
+        elapsed = _time.monotonic() - t0
 
-        # 统计报告
         archive = cfg.get("paths", {}).get("data_warehouse", "")
         if not archive:
             archive = os.path.join(BASE_DIR, "storage", "archive")
@@ -145,9 +182,7 @@ def main():
             from labeling import annotation_upload
             cvat_url = annotation_upload.upload(cfg, task_name=stats.get("batch_id", "DataFactory"))
 
-        _print_pipeline_report(stats, input_name, cvat_url)
-        if not args.auto_cvat:
-            print("\n💡 提示：要持续监控 storage/raw 目录，请使用: python main.py --guard")
+        _print_pipeline_report(stats, input_name, cvat_url, elapsed)
 
 
 if __name__ == "__main__":

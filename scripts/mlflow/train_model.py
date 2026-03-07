@@ -435,7 +435,7 @@ def main() -> int:
     # ── 构建运行目录 ────────────────────────────────────────────────────────
     run_ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id  = f"TrainRun_{run_ts}"
-    run_dir = os.path.join(BASE_DIR, "storage", "train_runs", run_id)
+    run_dir = os.path.join(BASE_DIR, "storage", "training", "runs", run_id)
     os.makedirs(run_dir, exist_ok=True)
     print(f"\n  Run ID:    {run_id}")
     print(f"  Run 目录:  {run_dir}")

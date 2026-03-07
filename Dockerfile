@@ -51,22 +51,24 @@ WORKDIR /app
 #   a) 升级 pip/setuptools（避免旧版 pip 解析错误）
 #   b) CPU-only PyTorch（防 ultralytics 自动拉 CUDA 版，镜像从 ~3 GB → ~900 MB）
 #      ★ 如需 GPU 推理，将 whl/cpu 改为 whl/cu121（或对应 CUDA 版本）
-#   c) opencv-python-headless（容器无显示服务器，去掉 X11/libGL 运行时依赖；
-#      通过 sed 把 requirements.txt 里的 opencv-python 替换为 headless 变体，
-#      保持版本约束不变；两个包互斥，pip 不会重复安装）
-#   d) 剩余 requirements.txt（psycopg2-binary / dash / ultralytics / requests …）
+#   c) opencv-python-headless（容器无显示服务器，去掉 X11/libGL 运行时依赖）
+#   d) 剩余依赖从 pyproject.toml 安装
 #
-COPY requirements.txt .
+COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     # ── CPU-only PyTorch（~750 MB，GPU 环境请修改 index-url）──────────────
     && pip install --no-cache-dir \
         torch torchvision \
         --index-url https://download.pytorch.org/whl/cpu \
-    # ── headless OpenCV（替换完整版，去掉 X11/libGL 依赖）─────────────────
-    && sed 's/^opencv-python>=/opencv-python-headless>=/g' requirements.txt \
-        > /tmp/req-docker.txt \
-    && pip install --no-cache-dir -r /tmp/req-docker.txt \
-    && rm /tmp/req-docker.txt
+    # ── headless OpenCV（替代完整版，去掉 X11/libGL 依赖）─────────────────
+    && pip install --no-cache-dir opencv-python-headless>=4.8.0 \
+    # ── 从 pyproject.toml 提取剩余依赖（跳过已装的 opencv-python）────────
+    && python3 -c "import tomllib; \
+deps = tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']; \
+print('\n'.join(d for d in deps if not d.startswith('opencv-python')))" \
+        > /tmp/deps.txt \
+    && pip install --no-cache-dir -r /tmp/deps.txt \
+    && rm /tmp/deps.txt
 
 # ── 4. 复制项目代码 ───────────────────────────────────────────────────────────
 COPY . .

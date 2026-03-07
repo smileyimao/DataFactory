@@ -248,7 +248,7 @@ def run_vision_scan(
     per_video: List[Dict[str, Any]] = []
     try:
         from tqdm import tqdm
-        path_iter = tqdm(video_paths, desc="YOLO 视觉扫描", unit="文件")
+        path_iter = tqdm(video_paths, desc="YOLO scan", unit="file")
     except ImportError:
         path_iter = video_paths
     for v_path in path_iter:

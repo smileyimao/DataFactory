@@ -27,13 +27,11 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    """--unit / --e2e 时自动设 marker 且不捕获 stdout，避免误以为卡死。"""
+    """--unit / --e2e 时自动设 marker 表达式。"""
     if config.getoption("--e2e", default=False):
-        config.option.markexpr = "full_pipeline"  # 只跑「整条 pipeline」= 等价 tools.py --test
-        config.option.capture = "no"
+        config.option.markexpr = "full_pipeline"
     elif config.getoption("--unit", default=False):
         config.option.markexpr = "not slow"
-        config.option.capture = "no"
 
 
 @pytest.fixture(scope="session")

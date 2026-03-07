@@ -164,8 +164,18 @@ def run_smart_factory(
     if gate_val is not None:
         cfg.setdefault("production_setting", {})["pass_rate_gate"] = float(gate_val)
 
+    import signal
+
+    def _sigint_handler(signum, frame):
+        logger.warning("Pipeline 被用户中断 (Ctrl+C / SIGINT)")
+        raise KeyboardInterrupt
+
+    prev_handler = signal.signal(signal.SIGINT, _sigint_handler)
     try:
         _run_pipeline(cfg, video_paths, gate_val)
+    except KeyboardInterrupt:
+        logger.warning("Pipeline 中断，已记录。当前阶段的中间数据可能不完整。")
+        raise
     except Exception as e:
         logger.exception("Pipeline 意外崩溃: %s", e)
         try:
@@ -173,6 +183,8 @@ def run_smart_factory(
         except Exception:
             pass
         raise
+    finally:
+        signal.signal(signal.SIGINT, prev_handler)
 
 
 def _run_pipeline(
@@ -195,22 +207,37 @@ def _run_pipeline(
             logger.warning("指定的视频路径无效或文件不存在")
         else:
             logger.warning("未发现视频物料: %s", raw)
+        print("  [Ingest]  No files found — nothing to process.\n", flush=True)
         return
 
-    # Ingest 预检：dedup + 首帧解码，失败项移入 quarantine
+    print(f"  [Ingest]  {len(videos)} files found", flush=True)
+
     if cfg.get("ingest", {}).get("pre_filter_enabled", False):
         logger.info("Ingest 预检: dedup + 首帧解码检查")
         videos, q_stats = ingest.pre_filter(cfg, videos)
         if not videos:
             logger.warning("预检后无有效物料（全部已隔离至 quarantine）")
+            print("  [Ingest]  All files quarantined after pre-filter.\n", flush=True)
             return
+        quarantined = q_stats.get("quarantined", 0) if q_stats else 0
+        if quarantined:
+            print(f"  [Ingest]  {len(videos)} passed pre-filter | {quarantined} quarantined", flush=True)
 
     start_time = time.time()
     t_ingest = time.time()
     total_bytes = sum(os.path.getsize(p) for p in videos if os.path.isfile(p))
+    size_gb = total_bytes / (1024 ** 3)
+    gate = cfg.get("production_setting", {}).get("pass_rate_gate", 85.0)
+    print(f"  [QC]      Batch started | {size_gb:.2f} GB | gate: {gate}%", flush=True)
 
     qc_archive, qualified, blocked, auto_reject, path_info = qc_engine.run_qc(cfg, videos)
     t_qc = time.time()
+
+    n_pass = len(qualified)
+    n_block = len(blocked) if blocked else 0
+    n_reject = len(auto_reject)
+    print(f"  [QC]      {n_pass} passed | {n_block} review | {n_reject} rejected", flush=True)
+
     to_fuel = list(qualified)
     to_reject = list(auto_reject)
     to_human = []
@@ -220,6 +247,7 @@ def _run_pipeline(
             n = pending_queue.add_items(cfg, blocked, path_info)
             if n:
                 logger.info("待复核队列: 本批 %d 项已入队，厂长可打开中控台复核 python -m dashboard.app", n)
+                print(f"  [Review]  {n} items queued for manual review", flush=True)
         else:
             timeout = cfg.get("review", {}).get("timeout_seconds", 600)
             added_produce, review_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
@@ -228,15 +256,19 @@ def _run_pipeline(
     t_review = time.time()
 
     archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
+    print(f"  [Archive] Archiving batch {path_info['batch_id']} ...", flush=True)
     archiver.archive_produced(cfg, to_fuel, to_human, path_info)
     metrics.inc("batch_processed_total")
-    # v3 血缘：记录 batch_lineage
     _record_batch_lineage(cfg, path_info)
-    # 待标池自动更新：本批 inspection 追加到 for_labeling
     updated = labeling_export.auto_update_after_batch(cfg, path_info)
     if updated:
         logger.info("待标池已自动更新: %s", updated)
     t_archive = time.time()
+
+    elapsed = t_archive - start_time
+    mins, secs = divmod(int(elapsed), 60)
+    throughput = size_gb / (elapsed / 3600) if elapsed > 0 else 0.0
+    print(f"  [Done]    {mins}m {secs}s | {size_gb:.2f} GB | {throughput:.1f} GB/h", flush=True)
 
     _batch_summary(
         path_info["batch_id"],

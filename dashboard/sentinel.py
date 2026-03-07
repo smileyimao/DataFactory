@@ -383,8 +383,7 @@ def main() -> None:
     )
     t.start()
 
-    print(f"[SENTINEL-1] 看板: http://localhost:{args.port}")
-    print(f"[SENTINEL-1] 停止: Ctrl-C")
+    print(f"\n  Sentinel Dashboard : http://127.0.0.1:{args.port}  (Ctrl-C to stop)\n")
     app.run(host="0.0.0.0", port=args.port, debug=False)
 
 

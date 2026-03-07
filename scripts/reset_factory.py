@@ -5,7 +5,7 @@
 用法:
   python scripts/reset_factory.py   # dry-run（默认 --target for-test）
   python scripts/reset_factory.py --execute --target db --confirm-dangerous  # 清空 DB 历史记录（PostgreSQL 清表 / SQLite 删文件）
-  python scripts/reset_factory.py --execute --target for-test --confirm-dangerous  # 测试用：清空 archive + redundant + rejected + reports + for_labeling + pending_review + db
+  python scripts/reset_factory.py --execute --target for-test --confirm-dangerous  # 测试用：清空 archive + rejected + reports + for_labeling + pending_review + db
 """
 import argparse
 import os
@@ -21,7 +21,7 @@ BASE_DIR = os.path.dirname(SCRIPT_DIR)
 def _ensure_storage_subdirs():
     """返回 (base_dir, storage_dir) 及子目录列表。"""
     storage = os.path.join(BASE_DIR, "storage")
-    subdirs = ["raw", "archive", "rejected", "redundant", "test", "reports"]
+    subdirs = ["raw", "archive", "rejected", "test", "reports"]
     return BASE_DIR, storage, subdirs
 
 
@@ -105,7 +105,7 @@ def main():
         "--target",
         choices=["db", "for-test"],
         default="for-test",
-        help="db = MD5 history; for-test = archive+redundant+rejected+reports+db. Requires --confirm-dangerous with --execute.",
+        help="db = MD5 history; for-test = archive+rejected+reports+db. Requires --confirm-dangerous with --execute.",
     )
     parser.add_argument(
         "--confirm-dangerous",
@@ -115,7 +115,7 @@ def main():
     args = parser.parse_args()
     dry_run = not args.execute
 
-    # 目标 for-test：一次清空 archive + redundant + rejected + reports + db，便于反复用同一批视频测试
+    # 目标 for-test：一次清空 archive + rejected + reports + db，便于反复用同一批视频测试
     if args.target == "for-test":
         if args.execute and not args.confirm_dangerous:
             print("Refusing to run for-test without --confirm-dangerous.", file=sys.stderr)
@@ -124,10 +124,8 @@ def main():
         _, storage, _ = _ensure_storage_subdirs()
         targets = [
             ("archive", os.path.join(storage, "archive")),
-            ("redundant", os.path.join(storage, "redundant")),
             ("rejected", os.path.join(storage, "rejected")),
             ("reports", os.path.join(storage, "reports")),
-            ("quarantine", os.path.join(storage, "quarantine")),
             ("for_labeling/images", os.path.join(storage, "for_labeling", "images")),
             ("pending_review", os.path.join(storage, "pending_review")),
         ]

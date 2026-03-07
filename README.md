@@ -41,7 +41,7 @@ DataFactory Architecture
 | Requirement     | Notes                                                                |
 | --------------- | -------------------------------------------------------------------- |
 | **Python 3.9+** | No Conda — standard venv only                                        |
-| **OpenCV**      | Installed via `requirements.txt`                                     |
+| **OpenCV**      | Installed via `pip install .`                                        |
 | **ffprobe**     | Optional; required for I-frame mode (`vision.use_i_frame_only=true`) |
 | **Docker**      | Required for local CVAT and PostgreSQL (production mode)             |
 | **NVIDIA GPU**  | Optional; YOLO inference falls back to CPU automatically             |
@@ -54,7 +54,8 @@ DataFactory Architecture
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install .                    # Production deps from pyproject.toml
+pip install ".[dev]"             # + test deps (pytest, hypothesis, etc.)
 cp .env.example .env             # Add email / CVAT credentials (optional)
 
 # Single run: scan storage/raw/ and execute full pipeline
@@ -133,7 +134,7 @@ python scripts/db/migrate_sqlite_to_pg.py
 
 DB tables: `production_history`, `batch_metrics`, `batch_lineage`, `label_import`, `model_train`.
 
-See **docs/architecture.md** and **ROOT_LAYOUT.md** for full directory layout.
+See **docs/architecture.md** and **docs/Roadmap.md** for full directory layout and evolution plan.
 
 ---
 

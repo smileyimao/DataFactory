@@ -153,7 +153,7 @@ def run_production(
     # 归档阶段帧提取间隔与 YOLO 检测对齐；QC 阶段（limit_seconds 非空）仍用 1 秒
     _sample_sec = float(cfg.get("vision", {}).get("sample_seconds", 1.0)) if not limit_seconds else 1.0
 
-    pbar = tqdm(video_paths, desc="加工", unit="文件")
+    pbar = tqdm(video_paths, desc="Processing", unit="file")
     for v_path in pbar:
         v_name = os.path.basename(v_path)
         dets_map = detections_by_video.get(v_name, {})

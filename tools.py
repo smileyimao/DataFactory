@@ -100,7 +100,7 @@ def run_full_pipeline_test(gate_val=None) -> None:
         n = seed_test.seed_raw(test_source, temp_raw, clear_raw_first=True)
         if n == 0:
             raise RuntimeError("测试源无视频，请先在 storage/test/original/ 放入测试视频。")
-        print(f"✅ 已复制 {n} 个测试视频到临时 raw，开始 pipeline（临时环境，邮件照发）...\n")
+        print(f"  Seeded {n} test videos -> temp raw\n", flush=True)
 
         test_cfg = copy.deepcopy(cfg)
         test_cfg["paths"] = dict(paths)
@@ -121,6 +121,9 @@ def run_full_pipeline_test(gate_val=None) -> None:
             "db_url":           temp_db,
         })
 
+        test_cfg.setdefault("mlflow", {})["enabled"] = False
+        test_cfg.setdefault("vision", {})["model_path"] = "models/yolov8s.pt"
+
         log_config.setup_logging(BASE_DIR, test_cfg, console=True)
         config_loader.init_storage_from_config(test_cfg)
 
@@ -139,7 +142,7 @@ def run_full_pipeline_test(gate_val=None) -> None:
             raise RuntimeError("数据库初始化失败")
 
         pipeline.run_smart_factory(cfg=test_cfg, gate_val=gate_val)
-        print("\n✅ 测试完成，临时环境已自动清理，未污染真实 storage/DB。")
+        print("\n  [OK] Test passed — temp environment cleaned up.\n", flush=True)
 
 
 def cmd_test(gate_val=None) -> None:
@@ -147,7 +150,7 @@ def cmd_test(gate_val=None) -> None:
     try:
         run_full_pipeline_test(gate_val=gate_val)
     except RuntimeError as e:
-        print(f"❌ {e}")
+        print(f"  [FAIL] {e}")
         sys.exit(1)
 
 

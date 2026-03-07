@@ -29,10 +29,11 @@ def _test_source_has_videos(project_root: str) -> bool:
     return False
 
 
-def test_main_test_mode_full_pipeline(project_root):
+def test_main_test_mode_full_pipeline(project_root, capfd):
     """全链路 E2E：临时环境跑整条 pipeline，等价 python tools.py --test。"""
     if not _test_source_has_videos(project_root):
         pytest.skip("paths.test_source 下无视频，跳过全链路测试。请在 storage/test/original/ 放入测试视频。")
 
-    from tools import run_full_pipeline_test
-    run_full_pipeline_test()
+    with capfd.disabled():
+        from tools import run_full_pipeline_test
+        run_full_pipeline_test()

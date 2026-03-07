@@ -154,7 +154,7 @@ def _run_sampling(
                     unique_paths.append(p)
             try:
                 from tqdm import tqdm
-                iter_paths = tqdm(unique_paths, desc="归档 source", unit="文件")
+                iter_paths = tqdm(unique_paths, desc="Archive source", unit="file")
             except ImportError:
                 iter_paths = unique_paths
             for v_path in iter_paths:
@@ -172,11 +172,11 @@ def _run_sampling(
             manifest_path = os.path.join(temp_qc, "manifest.json")
             with open(manifest_path, "r", encoding="utf-8") as f:
                 raw_items = json.load(f)
-            _MANIFEST_REQUIRED = {"file", "score"}
+            _MANIFEST_REQUIRED = {"filename", "source"}
             for item in raw_items:
                 missing = _MANIFEST_REQUIRED - set(item.keys())
                 if missing:
-                    logger.warning("manifest 条目缺少必需字段 %s，跳过: %s", missing, item.get("file", "?"))
+                    logger.warning("manifest 条目缺少必需字段 %s，跳过: %s", missing, item.get("filename", "?"))
                     continue
                 results.append(item)
         except Exception as e:

@@ -8,7 +8,7 @@
 天气数据 10 分钟缓存，API Key 从环境变量 OPENWEATHER_API_KEY 读取。
 未设置 Key 时返回占位数据，不影响 dashboard 启动。
 
-依赖：pytz, requests（已列入 requirements.txt）
+依赖：pytz, requests（已列入 pyproject.toml）
 """
 
 import logging

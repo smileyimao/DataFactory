@@ -42,9 +42,9 @@ def archive_rejected(
         max_attempts, backoff = _retry_cfg(cfg)
         if reason == "duplicate":
             dest = os.path.join(redundant_dir, name)
-            logger.info("Moving [%s] to [%s] due to [Duplicate -> redundant_archives]", name, os.path.abspath(dest))
+            logger.info("Moving [%s] to [%s] due to [Duplicate -> rejected/duplicate]", name, os.path.abspath(dest))
             if retry_utils.safe_move_with_retry(src, dest, max_attempts, backoff):
-                logger.info("冗余库: %s 已移入 redundant_archives", name)
+                logger.info("冗余库: %s 已移入 rejected/duplicate", name)
         else:
             base, ext = os.path.splitext(name)
             new_name = f"{base}_{item['score']:.0f}pts{ext}"

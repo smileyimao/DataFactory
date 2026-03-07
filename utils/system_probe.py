@@ -143,23 +143,17 @@ def print_system_info(caps: Dict[str, Any], config: Dict[str, Any]) -> None:
     device = caps.get("device", "cpu")
     ram_gb = caps.get("ram_gb", 0.0)
     vram_gb = caps.get("vram_gb", 0.0)
-    vram_str = f"{vram_gb:.1f}gb" if vram_gb else "None"
+    vram_str = f"{vram_gb:.1f} GB" if vram_gb else "—"
 
     clip_on = config.get("clip_enabled", False)
     sam_on = config.get("sam_enabled", False)
-    sam_type = config.get("sam_model_type") or "disabled"
+    sam_type = config.get("sam_model_type") or "off"
     yolo_model = config.get("yolo_model", "—")
 
-    clip_str = "✅ enabled" if clip_on else "❌ disabled"
-    sam_str = f"✅ {sam_type}" if sam_on else "❌ disabled"
+    clip_str = "on" if clip_on else "off"
+    sam_str = sam_type if sam_on else "off"
 
     print(
-        f"\n🔍 System probe:\n"
-        f"   Device: {device}\n"
-        f"   RAM: {ram_gb:.0f}gb\n"
-        f"   GPU VRAM: {vram_str}\n"
-        f"\n⚙️  Auto-configured:\n"
-        f"   CLIP: {clip_str}\n"
-        f"   SAM:  {sam_str}\n"
-        f"   YOLO: {yolo_model}"
+        f"  Device : {device}  |  RAM : {ram_gb:.0f} GB  |  VRAM : {vram_str}\n"
+        f"  YOLO   : {yolo_model}  |  CLIP : {clip_str}  |  SAM : {sam_str}"
     )

@@ -5,12 +5,10 @@
 data_warehouse/
 raw_video/
 test_videos/
-redundant_archives/
 rejected_material/
 storage/archive/
 storage/raw/
 storage/rejected/
-storage/redundant/
 storage/test/
 storage/reports/
 storage/for_labeling/
@@ -42,5 +40,4 @@ mlflow_artifacts/
 models/*.pt
 models/registry_cache/
 storage/training/
-storage/train_runs/
 storage/labeled_return/

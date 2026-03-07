@@ -87,8 +87,8 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     paths.setdefault("batch_fails_suffix", "_Fails")
     paths.setdefault("ensure_dirs", [
         "raw_video", "data_warehouse", "rejected_material", "redundant_archives",
-        "reports", "labeling_export", "labeled_return", "training", "golden",
-        "test_source", "pending_review", "quarantine", "logs",
+        "quarantine", "reports", "labeling_export", "labeled_return", "training",
+        "train_runs", "golden", "test_source", "pending_review", "logs",
     ])
     data["paths"] = paths
     data["_base_dir"] = base
@@ -300,21 +300,22 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
         "paths": {
             "raw_video": os.path.join(base_dir, "storage", "raw"),
             "data_warehouse": os.path.join(base_dir, "storage", "archive"),
-            "rejected_material": os.path.join(base_dir, "storage", "rejected"),
-            "redundant_archives": os.path.join(base_dir, "storage", "redundant"),
+            "rejected_material": os.path.join(base_dir, "storage", "rejected", "quality"),
+            "redundant_archives": os.path.join(base_dir, "storage", "rejected", "duplicate"),
+            "quarantine": os.path.join(base_dir, "storage", "rejected", "quarantine"),
             "reports": os.path.join(base_dir, "storage", "reports"),
             "labeling_export": os.path.join(base_dir, "storage", "for_labeling"),
             "labeled_return": os.path.join(base_dir, "storage", "labeled_return"),
-            "training": os.path.join(base_dir, "storage", "training"),
+            "training": os.path.join(base_dir, "storage", "training", "dataset"),
+            "train_runs": os.path.join(base_dir, "storage", "training", "runs"),
             "golden": os.path.join(base_dir, "storage", "golden"),
             "pending_review": os.path.join(base_dir, "storage", "pending_review"),
-            "quarantine": os.path.join(base_dir, "storage", "quarantine"),
             "logs": os.path.join(base_dir, "logs"),
             "db_url": os.environ.get("DATABASE_URL", "").strip(),
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
             "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"},
-            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "reports", "labeling_export", "labeled_return", "training", "golden", "test_source", "pending_review", "quarantine", "logs"],
+            "ensure_dirs": ["raw_video", "data_warehouse", "rejected_material", "redundant_archives", "quarantine", "reports", "labeling_export", "labeled_return", "training", "train_runs", "golden", "test_source", "pending_review", "logs"],
         },
         "ingest": {
             "batch_wait_seconds": 8,

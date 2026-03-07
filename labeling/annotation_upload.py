@@ -127,7 +127,7 @@ def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str)
     """CVAT 上传驱动：导出带置信度标注的图片 → 打包 zip → 上传 CVAT。"""
     import shutil
     from labeling import labeling_export
-    from engines.labeling_export import _COCO_NAMES
+    from labeling.labeling_export import _COCO_NAMES
     sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
     from export_for_cvat import export_task_zip_flat
     from export_for_cvat_native import export_cvat_native

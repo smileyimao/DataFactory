@@ -25,12 +25,13 @@
 | `raw_video` | 原材料目录，单次/Guard 均从此**递归**扫描（支持子目录、深层嵌套） | `storage/raw` |
 | `test_source` | 测试源目录：`main.py --test` 从此复制到 raw，pipeline 不改动此目录 | `storage/test/original` |
 | `data_warehouse` | 合格成品归档目录（按 Batch 建子目录） | `storage/archive` |
-| `rejected_material` | 不合格废片归档目录 | `storage/rejected` |
-| `redundant_archives` | 重复件归档目录 | `storage/redundant` |
+| `rejected_material` | QC 质量不达标归档 | `storage/rejected/quality` |
+| `redundant_archives` | MD5 重复归档 | `storage/rejected/duplicate` |
 | `reports` | 历史报表存档（每批 HTML/PNG 副本） | `storage/reports` |
 | `labeling_export` | 可选：待标注清单导出目录（`scripts/export_for_labeling.py`） | `storage/for_labeling` |
 | `labeled_return` | 标注回传落盘目录（`scripts/import_labeled_return.py`） | `storage/labeled_return` |
-| `training` | 达标数据并入的训练集根目录 | `storage/training` |
+| `training` | 达标数据并入的训练集根目录 | `storage/training/dataset` |
+| `train_runs` | 训练运行输出目录 | `storage/training/runs` |
 | `dashboard_port` | 厂长中控台端口（`python -m dashboard.app`） | `8765` |
 | `golden` | 黄金库：开机自检时真跑 QC 用的参考视频目录；边缘部署可改为挂载点如 `/opt/factory/golden` | `storage/golden` |
 | `logs` | 日志目录 | `logs` |
@@ -39,7 +40,7 @@
 | `batch_fails_suffix` | 废片目录后缀 | `_Fails` |
 | `batch_subdirs` | 批次内子目录名（reports/source/refinery/inspection/labeled） | 见 path_decoupling.md |
 | `pending_review` | 待复核队列目录（中控台） | `storage/pending_review` |
-| `quarantine` | Ingest 预检：重复/解码失败视频移入此目录 | `storage/quarantine` |
+| `quarantine` | Ingest 预检：重复/解码失败视频移入此目录 | `storage/rejected/quarantine` |
 
 **Path decoupling**：批次目录名、前缀、后缀均在 paths 配置，改名只改此处。支持 `DATAFACTORY_RAW_VIDEO` 等环境变量覆盖。详见 **docs/path_decoupling.md**。
 

@@ -30,14 +30,15 @@ paths:
   # 数据流主路径
   raw_video:          "storage/raw"              # 原材料投入口（Guard 模式监控此目录）
   data_warehouse:     "storage/archive"          # 归档成品库（批次目录落盘）
-  rejected_material:  "storage/rejected"         # 质检不合格
-  redundant_archives: "storage/redundant"        # 重复文件隔离
-  quarantine:         "storage/quarantine"       # Ingest 预检失败（解码错误/重复）
+  rejected_material:  "storage/rejected/quality"     # QC 质量不达标
+  redundant_archives: "storage/rejected/duplicate"   # MD5 重复
+  quarantine:         "storage/rejected/quarantine"  # Ingest 预检失败（解码错误等）
 
   # 标注闭环路径
   labeling_export:    "storage/for_labeling"     # 待标注图片输出（送 CVAT）
   labeled_return:     "storage/labeled_return"   # 标注员回传落盘
-  training:           "storage/training"         # 达标数据并入训练集
+  training:           "storage/training/dataset"  # 达标数据并入训练集
+  train_runs:         "storage/training/runs"     # 训练运行输出
 
   # 运维 / 测试路径
   reports:            "storage/reports"          # QC 报表
@@ -58,8 +59,8 @@ paths:
 
   # 启动时自动创建的目录列表
   ensure_dirs: [raw_video, data_warehouse, rejected_material, redundant_archives,
-                reports, labeling_export, labeled_return, training, golden,
-                test_source, pending_review, quarantine, logs]
+                quarantine, reports, labeling_export, labeled_return, training,
+                train_runs, golden, test_source, pending_review, logs]
 
   # Dashboard 端口（厂长中控台，docker-compose 中已映射）
   dashboard_port: 8765
@@ -127,7 +128,7 @@ production_setting:
 # 4c. YOLO 视觉检测
 vision:
   enabled: true
-  model_path: "models:/vehicle_detector/1"   # MLflow Registry URI；回退用 "models/yolov8s.pt"
+  model_path: "models/yolov8s.pt"   # 本地模型；MLflow Registry URI 示例: "models:/vehicle_detector/1"（需 MLflow 运行）
   sample_seconds: 5      # YOLO 抽帧间隔（秒）
 
   # 推理加速（按需开启）
@@ -180,7 +181,7 @@ labeled_return:
 # ── §7 模型训练与追踪 ──────────────────────────────────────────────────────────
 
 mlflow:
-  enabled: true
+  enabled: false                         # 启用前需先 docker compose --profile mlflow up -d
   experiment_name: "datafactory"
   tracking_uri: "http://0.0.0.0:5001"   # MLflow 服务地址；null=退回本地 SQLite
 
@@ -244,7 +245,7 @@ disk_check:
 
 # ── §10 基础大模型（CLIP / SAM）─────────────────────────────────────────────
 # 所有开关默认 false，按需 opt-in；缺包时自动降级，不影响主流程。
-# 安装说明见 requirements.txt 底部。
+# 安装说明见 pyproject.toml [project.optional-dependencies] foundation。
 foundation_models:
   override: false                 # true = 忽略自动检测，使用手动配置（下方所有值）
 

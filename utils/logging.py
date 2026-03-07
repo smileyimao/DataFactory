@@ -89,7 +89,7 @@ def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None, console: 
     log_file_abs = os.path.abspath(log_file)
     for h in root.handlers:
         if getattr(h, "baseFilename", None) == log_file_abs:
-            if console and not any(isinstance(x, logging.StreamHandler) for x in root.handlers):
+            if console and not any(isinstance(x, _DataFactoryConsoleHandler) for x in root.handlers):
                 _add_console_handler(root, tz, cfg)
             return
     lg_cfg = (cfg or {}).get("logging", {})
@@ -109,12 +109,21 @@ def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None, console: 
         _add_console_handler(root, tz, cfg)
 
 
+class _DataFactoryConsoleHandler(logging.StreamHandler):
+    """直接写入 /dev/tty（终端设备），绕过 pytest fd 级别捕获。"""
+    pass
+
+
 def _add_console_handler(root: logging.Logger, tz: str, cfg: Optional[Dict[str, Any]] = None) -> None:
-    """为 root 添加 StreamHandler，便于 E2E/演示时在终端看到日志。"""
-    if any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+    """为 root 添加终端 handler，便于 E2E/演示时在终端看到日志。"""
+    if any(isinstance(h, _DataFactoryConsoleHandler) for h in root.handlers):
         return
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    try:
+        tty = open("/dev/tty", "w")
+    except OSError:
+        tty = None
+    ch = _DataFactoryConsoleHandler(tty) if tty else _DataFactoryConsoleHandler()
+    ch.setLevel(logging.WARNING)
     lg_cfg = (cfg or {}).get("logging", {})
     log_fmt = lg_cfg.get("format", os.environ.get("DATAFACTORY_LOG_FORMAT", "text")).lower()
     if log_fmt == "json":
