@@ -50,8 +50,12 @@ def cmd_probe() -> None:
 
 # ─────────────────────────── --test ────────────────────────────────────────
 
-def cmd_test(gate_val=None) -> None:
-    """全链路测试：临时环境跑 pipeline，邮件照发，不污染真实 storage/DB。"""
+def run_full_pipeline_test(gate_val=None) -> None:
+    """
+    全链路测试核心逻辑：临时环境跑 pipeline，不污染真实 storage/DB。
+    可被 pytest 直接 import 调用（不含 sys.exit），也被 cmd_test 包裹用于 CLI。
+    失败时抛 RuntimeError。
+    """
     from config import config_loader
     from utils import logging as log_config
     from core import pipeline
@@ -64,16 +68,14 @@ def cmd_test(gate_val=None) -> None:
     test_source = os.path.abspath(test_source)
 
     if not os.path.isdir(test_source):
-        print("❌ 测试源目录不存在:", test_source)
-        sys.exit(1)
+        raise RuntimeError(f"测试源目录不存在: {test_source}")
     video_count = sum(
         1 for n in os.listdir(test_source)
         if os.path.isfile(os.path.join(test_source, n))
         and any(n.lower().endswith(ext) for ext in VIDEO_EXT)
     )
     if video_count == 0:
-        print("❌ 测试源无视频，请先在 storage/test/original/ 放入测试视频。")
-        sys.exit(1)
+        raise RuntimeError("测试源无视频，请先在 storage/test/original/ 放入测试视频。")
 
     with tempfile.TemporaryDirectory(prefix="datafactory_test_") as tmp:
         temp_raw          = os.path.join(tmp, "raw")
@@ -97,8 +99,7 @@ def cmd_test(gate_val=None) -> None:
 
         n = seed_test.seed_raw(test_source, temp_raw, clear_raw_first=True)
         if n == 0:
-            print("❌ 测试源无视频，请先在 storage/test/original/ 放入测试视频。")
-            sys.exit(1)
+            raise RuntimeError("测试源无视频，请先在 storage/test/original/ 放入测试视频。")
         print(f"✅ 已复制 {n} 个测试视频到临时 raw，开始 pipeline（临时环境，邮件照发）...\n")
 
         test_cfg = copy.deepcopy(cfg)
@@ -117,28 +118,37 @@ def cmd_test(gate_val=None) -> None:
             "quarantine":       temp_quarantine,
             "logs":             temp_logs,
             "db_file":          temp_db,
+            "db_url":           temp_db,
         })
 
-        log_config.setup_logging(BASE_DIR, test_cfg)
+        log_config.setup_logging(BASE_DIR, test_cfg, console=True)
         config_loader.init_storage_from_config(test_cfg)
 
         from utils import startup
         if test_cfg.get("startup_self_check", True):
             if not startup.run_startup_self_check(test_cfg):
-                sys.exit(1)
+                raise RuntimeError("开机自检失败")
         startup.run_rolling_cleanup(test_cfg)
         startup.run_disk_check(test_cfg)
         if test_cfg.get("startup_golden_run"):
             if not startup.run_golden_run(test_cfg):
-                sys.exit(1)
+                raise RuntimeError("Golden run 失败")
 
         from db import db_tools
         if not db_tools.init_db(temp_db):
-            print("❌ 数据库初始化失败。")
-            sys.exit(1)
+            raise RuntimeError("数据库初始化失败")
 
         pipeline.run_smart_factory(cfg=test_cfg, gate_val=gate_val)
         print("\n✅ 测试完成，临时环境已自动清理，未污染真实 storage/DB。")
+
+
+def cmd_test(gate_val=None) -> None:
+    """CLI 入口：包裹 run_full_pipeline_test，失败时 sys.exit(1)。"""
+    try:
+        run_full_pipeline_test(gate_val=gate_val)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
 
 # ─────────────────────────── CLI ───────────────────────────────────────────

@@ -28,6 +28,9 @@ __pycache__/
 # 日志目录（按日滚动，不提交）
 logs/
 
+# Obsidian 知识库（个人笔记，不提交）
+Knowledge/
+
 # 测试产出（工业报表预览等，本地查看用）
 tests/output/
 

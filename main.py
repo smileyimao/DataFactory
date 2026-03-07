@@ -91,7 +91,7 @@ def main():
 
     config_loader.set_base_dir(BASE_DIR)
     cfg = config_loader.load_config()
-    log_config.setup_logging(BASE_DIR, cfg)
+    log_config.setup_logging(BASE_DIR, cfg, console=True)  # 控制台输出进度，便于观察是否卡住
     config_loader.init_storage_from_config(cfg)
 
     from utils import startup

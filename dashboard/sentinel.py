@@ -72,11 +72,10 @@ def _init_log(log_dir: str) -> str:
     os.makedirs(log_dir, exist_ok=True)
     fname = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     path  = os.path.join(log_dir, fname)
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(
-            ["Timestamp", "Frame_ID", "Jitter", "Blur",
-             "Brightness", "Confidence", "IoU", "Alert_Type"]
-        )
+    from utils.file_tools import atomic_write_text
+    header = ",".join(["Timestamp", "Frame_ID", "Jitter", "Blur",
+                        "Brightness", "Confidence", "IoU", "Alert_Type"]) + "\n"
+    atomic_write_text(path, header)
     return path
 
 

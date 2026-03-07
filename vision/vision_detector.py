@@ -242,7 +242,7 @@ def run_vision_scan(
         logger.info("AI 正在扫描...（视觉模型未加载，跳过推理）")
         return []
     logger.info("AI 正在扫描... (I帧=%s 运动唤醒=%s 级联=%s)", use_i_frame, motion_threshold > 0, cascade_model is not None)
-    print(f"\n🔍 [YOLO 视觉扫描] 共 {len(video_paths)} 个文件，请稍候...")
+    logger.info("YOLO 视觉扫描: 共 %d 个文件，请稍候...", len(video_paths))
     params = get_inference_params(cfg)
     conf_threshold = float(v.get("conf", 0.25)) if return_detections else 0.0
     per_video: List[Dict[str, Any]] = []

@@ -14,6 +14,7 @@ import shutil
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
+from utils import file_tools
 from utils.usage_tracker import track
 
 logger = logging.getLogger(__name__)
@@ -165,8 +166,7 @@ def export_manifest_for_labeling(
             manifest.append(item)
 
     out_path = os.path.join(export_dir, "manifest_for_labeling.json")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    file_tools.atomic_write_json(out_path, manifest)
     logger.info("导出待标注清单: %d 条, 写入 %s", len(manifest), out_path)
 
     # 一键拷走：图片 + 同名 .txt 到 images/，用 batch_id_filename 避免跨批次重名
@@ -383,10 +383,7 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
                 "batch_id": batch_id,
             })
     if added > 0 or refinery_added > 0:
-        tmp_path = manifest_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
-        os.replace(tmp_path, manifest_path)  # 原子替换，崩溃不产生损坏文件
+        file_tools.atomic_write_json(manifest_path, existing)
         if added > 0:
             logger.info("待标池: inspection 追加 %d 条 -> %s", added, manifest_path)
         if refinery_added > 0:

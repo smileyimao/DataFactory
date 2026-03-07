@@ -44,14 +44,14 @@ def archive_rejected(
             dest = os.path.join(redundant_dir, name)
             logger.info("Moving [%s] to [%s] due to [Duplicate -> redundant_archives]", name, os.path.abspath(dest))
             if retry_utils.safe_move_with_retry(src, dest, max_attempts, backoff):
-                print(f"📦 [冗余库] {name} 已移入 redundant_archives")
+                logger.info("冗余库: %s 已移入 redundant_archives", name)
         else:
             base, ext = os.path.splitext(name)
             new_name = f"{base}_{item['score']:.0f}pts{ext}"
             dest = os.path.join(batch_fails_dir, new_name)
             logger.info("Moving [%s] to [%s] due to [Rejected material _XXpts]", name, os.path.abspath(dest))
             if retry_utils.safe_move_with_retry(src, dest, max_attempts, backoff):
-                print(f"📦 [废片库] {name} -> {new_name}")
+                logger.info("废片库: %s -> %s", name, new_name)
 
 
 def _split_approved_by_vision_conf(
@@ -119,7 +119,7 @@ def _split_approved_by_vision_conf(
         high_n = sum(1 for t in video_tier_map.values() if t == "high")
         std_n  = sum(1 for t in video_tier_map.values() if t == "standard")
         low_n  = sum(1 for t in video_tier_map.values() if t == "low")
-        print(f"   📊 视频分级: 高质 {high_n}  标准 {std_n}  低质 {low_n}（低质 → inspection）")
+        logger.info("视频分级: 高质 %d 标准 %d 低质 %d（低质 → inspection）", high_n, std_n, low_n)
 
     return to_fuel, to_human, detections_by_video
 
@@ -137,9 +137,9 @@ def archive_approved_items(
         cfg, items, precomputed_detections=qc_dets if qc_dets else None
     )
     if qc_dets:
-        print("   ♻️ 复用 QC 阶段 YOLO 结果")
+        logger.info("复用 QC 阶段 YOLO 结果")
     if to_fuel or to_human:
-        print(f"   📊 放行项按 YOLO 置信度分流: {len(to_fuel)} → refinery, {len(to_human)} → inspection")
+        logger.info("放行项按 YOLO 置信度分流: %d → refinery, %d → inspection", len(to_fuel), len(to_human))
     batch_id = path_info.get("batch_id", "")
     tiered = path_info.get("confidence_tiered_output", True)
     if not tiered:
@@ -148,14 +148,14 @@ def archive_approved_items(
     os.makedirs(path_info.get("fuel_dir", ""), exist_ok=True)
     os.makedirs(path_info.get("human_dir", ""), exist_ok=True)
     if to_fuel:
-        print(f"\n🏭 [阶段 2] refinery（放行高置信，共 {len(to_fuel)} 个文件）...")
+        logger.info("阶段2 refinery 放行高置信 共 %d 个文件", len(to_fuel))
         _run_produce_chunk(
             cfg, to_fuel, path_info["fuel_dir"], batch_id, "refinery",
             detections_by_video=detections_by_video if detections_by_video else None,
             use_flat_output=True, skip_html_report=True,
         )
     if to_human:
-        print(f"\n🏭 [阶段 2] inspection（放行待人工，共 {len(to_human)} 个文件）...")
+        logger.info("阶段2 inspection 放行待人工 共 %d 个文件", len(to_human))
         human_flat = cfg.get("production_setting", {}).get("human_review_flat", False)
         _run_produce_chunk(
             cfg, to_human, path_info["human_dir"], batch_id, "inspection",
@@ -163,7 +163,7 @@ def archive_approved_items(
             use_flat_output=human_flat,
         )
     if to_fuel or to_human:
-        print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")
+        logger.info("档案入库 批次 %s 的指纹已存入历史大账本", batch_id)
 
 
 def _get_detections_by_video(
@@ -209,7 +209,7 @@ def _run_produce_chunk(
         skip_html_report=skip_html_report,
         inspection_dir=inspection_dir,
     )
-    print(f"🏆 {label}：共加工 {count} 张样图 -> {os.path.abspath(target_dir)}")
+    logger.info("%s: 共加工 %d 张样图 -> %s", label, count, os.path.abspath(target_dir))
     ts = time_utils.now_toronto(cfg).strftime("%Y-%m-%d %H:%M:%S")
     for x in items:
         if x.get("fingerprint"):
@@ -234,15 +234,15 @@ def archive_produced(
         qc_detections = path_info.get("qc_detections_by_video") or {}
         all_items = to_fuel + to_human
         if not all_items:
-            print("🛑 无物料进入量产，本批次结束。")
+            logger.info("无物料进入量产，本批次结束")
         else:
             if qc_detections:
-                print("   ♻️ 复用 QC 阶段 YOLO 结果，跳过二次推理")
+                logger.info("复用 QC 阶段 YOLO 结果，跳过二次推理")
                 detections = qc_detections
             else:
                 all_paths = [x["archive_path"] for x in all_items if os.path.isfile(x.get("archive_path", ""))]
                 detections = _get_detections_by_video(cfg, all_paths)
-            print(f"\n🏭 [阶段 2] 帧级分流（共 {len(all_items)} 个文件）→ refinery / inspection ...")
+            logger.info("阶段2 帧级分流 共 %d 个文件 → refinery / inspection", len(all_items))
             _run_produce_chunk(
                 cfg, all_items,
                 fuel_dir, batch_id,
@@ -257,9 +257,9 @@ def archive_produced(
     # 兼容：不按置信分层时，合并写 2_Mass_Production
     to_produce = to_fuel + to_human
     if not to_produce:
-        print("🛑 无物料进入量产，本批次结束。")
+        logger.warning("无物料进入量产，本批次结束。")
         return
     mass_dir = path_info.get("mass_dir", "")
-    print(f"\n🏭 [阶段 2] 量产（共 {len(to_produce)} 个文件）-> refinery...")
+    logger.info("阶段2 量产 共 %d 个文件 -> refinery", len(to_produce))
     _run_produce_chunk(cfg, to_produce, mass_dir, batch_id, "refinery")
-    print(f"📔 [档案入库] 批次 {batch_id} 的指纹已存入历史大账本。")
+    logger.info("档案入库: 批次 %s 的指纹已存入历史大账本。", batch_id)

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
-from utils import time_utils
+from utils import time_utils, file_tools
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +96,7 @@ def add_items(
         added += 1
 
     try:
-        with open(queue_path, "w", encoding="utf-8") as f:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
+        file_tools.atomic_write_json(queue_path, existing)
     except OSError as e:
         logger.exception("写入待复核队列失败: %s", e)
         return 0
@@ -124,8 +123,7 @@ def _save_queue(cfg: Dict[str, Any], items: List[Dict[str, Any]]) -> bool:
     queue_path = config_loader.get_pending_queue_path(cfg)
     try:
         os.makedirs(os.path.dirname(queue_path), exist_ok=True)
-        with open(queue_path, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
+        file_tools.atomic_write_json(queue_path, items)
         return True
     except OSError as e:
         logger.exception("保存待复核队列失败: %s", e)

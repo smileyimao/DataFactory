@@ -38,5 +38,6 @@ markers = [
     "unit: 单元测试",
     "integration: 集成测试",
     "e2e: 端到端（需测试视频）",
+    "full_pipeline: 全链路一条龙，等价 tools.py --test",
     "slow: 耗时较长，日常 CI 用 -m 'not slow' 跳过",
 ]

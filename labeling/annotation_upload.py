@@ -119,8 +119,8 @@ def _apply_sam_to_images_dir(images_dir: str, sam, coco_names: list) -> None:
 
         if polygons:
             poly_path = os.path.join(images_dir, base + ".poly.json")
-            with open(poly_path, "w", encoding="utf-8") as f:
-                _json.dump(polygons, f, ensure_ascii=False)
+            from utils import file_tools as _ft
+            _ft.atomic_write_json(poly_path, polygons)
 
 
 def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str) -> str:
@@ -168,5 +168,5 @@ def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str)
         return url or ""
     except Exception as e:
         logger.exception("CVAT 上传失败: %s", e)
-        print(f"⚠️ CVAT 自动上传失败: {e}")
+        logger.warning("CVAT 自动上传失败: %s", e)
         return ""

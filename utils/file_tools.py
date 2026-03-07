@@ -1,10 +1,33 @@
-# utils/file_tools.py — 文件稳定性、路径列表，只干活不决策
+# utils/file_tools.py — 文件稳定性、路径列表、P0 原子写，只干活不决策
+import json
 import os
 import time
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 VIDEO_EXT_DEFAULT: Tuple[str, ...] = (".mp4", ".mov", ".avi", ".mkv")
 IMAGE_EXT_DEFAULT: Tuple[str, ...] = (".jpg", ".jpeg", ".png")
+
+
+def atomic_write_text(path: str, text: str, encoding: str = "utf-8") -> None:
+    """
+    P0 原子写：临时文件 -> flush+fsync -> replace。禁止直接覆写生产/配置/manifest。
+    """
+    tmp = path + ".tmp"
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    with open(tmp, "w", encoding=encoding) as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def atomic_write_json(path: str, data: Any, encoding: str = "utf-8", indent: int = 2, ensure_ascii: bool = False) -> None:
+    """
+    P0 原子写 JSON：临时文件 -> flush+fsync -> replace。
+    """
+    atomic_write_text(
+        path, json.dumps(data, indent=indent, ensure_ascii=ensure_ascii), encoding=encoding
+    )
 
 
 def sanitize_filename(name: str) -> str:

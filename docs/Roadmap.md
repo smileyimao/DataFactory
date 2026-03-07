@@ -83,6 +83,7 @@
 | **v3.6** | ✅ 完成 | HQ 全屏适配 + 白底修复 + 实时天气（Open-Meteo）+ DataFactory 品牌徽标；SENTINEL-1 同步全屏 |
 | **v3.7** | ✅ 完成 | Site Status 实时本地时间（pytz）+ OpenWeatherMap 真实天气（API Key）；Flask 端点 `/api/sites/time` `/api/sites/weather`；`engines/site_info.py` 10 分钟缓存 |
 | **v3.9** | ✅ 完成 | CLIP/SAM 基础模型集成（opt-in，缺包优雅降级）：语义去重、FPS 多样性采样、场景自适应阈值、SAM polygon 预标注；硬件自动检测（`system_probe`）；功能使用追踪（`usage_tracker`）；`tools.py` 运维 CLI |
+| **P0 合规** | ✅ 完成 | 原子写全覆盖（含 qc_engine manifest×2、annotation_upload .poly.json、sentinel CSV）；生产 pipeline 去 `print()` 改 logger（archiver×3、vision_detector×1、notifier×1）；manifest schema 校验（必需字段 file/score）；docker-compose 密码不硬编码；`console=True` 终端实时日志 |
 | **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
 | **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制、HQ 真实数据接入 |
 

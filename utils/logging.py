@@ -68,9 +68,10 @@ class _TZFormatter(logging.Formatter):
         return ct.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None) -> None:
+def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None, console: bool = False) -> None:
     """
     在 base_dir 下创建 logs/，配置文件日志。P1：RotatingFileHandler 轮转，时区从 cfg 读取。
+    console=True 时同时输出到 stderr，便于 E2E/演示时看到进度（避免误以为卡死）。
     """
     base_dir = os.path.abspath(base_dir)
     log_dir = os.path.join(base_dir, LOGS_DIR)
@@ -88,6 +89,8 @@ def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None) -> None:
     log_file_abs = os.path.abspath(log_file)
     for h in root.handlers:
         if getattr(h, "baseFilename", None) == log_file_abs:
+            if console and not any(isinstance(x, logging.StreamHandler) for x in root.handlers):
+                _add_console_handler(root, tz, cfg)
             return
     lg_cfg = (cfg or {}).get("logging", {})
     max_bytes = lg_cfg.get("max_bytes", 10 * 1024 * 1024)
@@ -102,3 +105,20 @@ def setup_logging(base_dir: str, cfg: Optional[Dict[str, Any]] = None) -> None:
     else:
         fh.setFormatter(_TZFormatter(tz, "[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s"))
     root.addHandler(fh)
+    if console:
+        _add_console_handler(root, tz, cfg)
+
+
+def _add_console_handler(root: logging.Logger, tz: str, cfg: Optional[Dict[str, Any]] = None) -> None:
+    """为 root 添加 StreamHandler，便于 E2E/演示时在终端看到日志。"""
+    if any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        return
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    lg_cfg = (cfg or {}).get("logging", {})
+    log_fmt = lg_cfg.get("format", os.environ.get("DATAFACTORY_LOG_FORMAT", "text")).lower()
+    if log_fmt == "json":
+        ch.setFormatter(JsonFormatter(tz))
+    else:
+        ch.setFormatter(_TZFormatter(tz, "[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s"))
+    root.addHandler(ch)

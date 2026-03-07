@@ -42,7 +42,6 @@ def send_mail(
     auth = os.getenv(password_env_key)
     if not auth:
         logger.warning("邮件未发送：未配置 %s（请在 .env 中设置邮箱授权码）", password_env_key)
-        print(f"⚠️ [邮件] 未发送：.env 中未设置 {password_env_key}，请检查项目根目录 .env 文件")
         return False
     msg = MIMEMultipart()
     msg["From"] = email_cfg.get("sender", "")

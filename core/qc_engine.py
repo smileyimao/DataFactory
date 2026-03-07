@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 
 from config import config_loader
-from utils import time_utils
+from utils import time_utils, file_tools
 from utils import fingerprinter, notifier, report_tools, retry_utils
 from utils.usage_tracker import track
 from db import db_tools
@@ -94,9 +94,8 @@ def _run_sampling(
     with tempfile.TemporaryDirectory(prefix="datafactory_qc_") as temp_qc:
         try:
             if not paths_need_sample:
-                with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
-                    json.dump([], f, ensure_ascii=False)
-                print("  （本批次均为重复，已跳过抽检）")
+                file_tools.atomic_write_json(os.path.join(temp_qc, "manifest.json"), [])
+                logger.info("本批次均为重复，已跳过抽检")
             elif clip_embedder:
                 # 逐视频运行：每个视频按场景分类覆写质量阈值
                 merged: List[Dict[str, Any]] = []
@@ -137,9 +136,7 @@ def _run_sampling(
                                     merged.extend(json.load(f))
                         except Exception as e:
                             logger.exception("抽检异常 [%s]: %s", os.path.basename(video_path), e)
-                # 写合并 manifest 供后续读取
-                with open(os.path.join(temp_qc, "manifest.json"), "w", encoding="utf-8") as f:
-                    json.dump(merged, f, ensure_ascii=False)
+                file_tools.atomic_write_json(os.path.join(temp_qc, "manifest.json"), merged)
             else:
                 production_tools.run_production(
                     paths_need_sample, temp_qc, batch_id, cfg,
@@ -147,20 +144,41 @@ def _run_sampling(
                 )
 
             os.makedirs(source_archive_dir, exist_ok=True)
+            # 按绝对路径去重，避免同一文件出现两次导致第二次 move 报 No such file
+            seen = set()
+            unique_paths = []
+            for p in video_paths:
+                ap = os.path.abspath(p)
+                if ap not in seen:
+                    seen.add(ap)
+                    unique_paths.append(p)
             try:
                 from tqdm import tqdm
-                iter_paths = tqdm(video_paths, desc="归档 source", unit="文件")
+                iter_paths = tqdm(unique_paths, desc="归档 source", unit="文件")
             except ImportError:
-                iter_paths = video_paths
+                iter_paths = unique_paths
             for v_path in iter_paths:
                 dest = os.path.join(source_archive_dir, os.path.basename(v_path))
+                if not os.path.isfile(v_path):
+                    if os.path.isfile(dest):
+                        logger.info("已归档（跳过重复项）: %s", os.path.basename(v_path))
+                    else:
+                        logger.warning("源文件不存在，跳过: %s", v_path)
+                    continue
                 logger.info("Moving [%s] to [%s] due to [Batch archive source]", os.path.basename(v_path), os.path.abspath(dest))
                 if not retry_utils.safe_move_with_retry(v_path, dest, max_attempts, backoff):
-                    print(f"⚠️ [归档失败]: {v_path}")
+                    logger.warning("归档失败: %s", v_path)
 
             manifest_path = os.path.join(temp_qc, "manifest.json")
             with open(manifest_path, "r", encoding="utf-8") as f:
-                results.extend(json.load(f))
+                raw_items = json.load(f)
+            _MANIFEST_REQUIRED = {"file", "score"}
+            for item in raw_items:
+                missing = _MANIFEST_REQUIRED - set(item.keys())
+                if missing:
+                    logger.warning("manifest 条目缺少必需字段 %s，跳过: %s", missing, item.get("file", "?"))
+                    continue
+                results.append(item)
         except Exception as e:
             logger.exception("抽检/读取 manifest 异常: %s", e)
 
@@ -282,12 +300,12 @@ def _gate_split(
         qualified = [x for x in qc_archive if not x["is_duplicate"] and x["score"] >= dual_high]
         auto_reject = [(x, "quality") for x in qc_archive if not x["is_duplicate"] and x["score"] < dual_low]
         blocked = [x for x in qc_archive if x["is_duplicate"] or (dual_low <= x["score"] < dual_high)]
-        print(f"📊 质检结果：批次 {batch_id} 共 {len(qc_archive)} 个文件，双门槛 高>={dual_high}% 自动放行 低<{dual_low}% 自动拦截 中间人工复核")
+        logger.info("质检结果 批次=%s 文件数=%d 双门槛 高>=%s%% 自动放行 低<%s%% 自动拦截 中间人工复核", batch_id, len(qc_archive), dual_high, dual_low)
     else:
         qualified = [x for x in qc_archive if x["passed"] and not x["is_duplicate"]]
         auto_reject = []
         blocked = [x for x in qc_archive if not (x["passed"] and not x["is_duplicate"])]
-        print(f"📊 质检结果：批次 {batch_id} 共 {len(qc_archive)} 个文件，准入标准 {gate}%")
+        logger.info("质检结果 批次=%s 文件数=%d 准入标准 %s%%", batch_id, len(qc_archive), gate)
     return qualified, blocked, auto_reject
 
 
@@ -320,9 +338,9 @@ def _generate_reports(
         vision_result, batch_id, report_dir, version_info=version_info, vision_skipped=vision_skipped,
     )
     logger.info("智能检测报告已生成: %s", vision_report_path)
-    print(f"📍 质量报告: file://{os.path.abspath(report_path)}")
-    print(f"📍 工业报表: file://{os.path.abspath(industrial_report_path)}")
-    print(f"📍 智能检测报告: file://{os.path.abspath(vision_report_path)}")
+    logger.info("质量报告: file://%s", os.path.abspath(report_path))
+    logger.info("工业报表: file://%s", os.path.abspath(industrial_report_path))
+    logger.info("智能检测报告: file://%s", os.path.abspath(vision_report_path))
     return report_path, industrial_report_path, vision_report_path
 
 
@@ -368,7 +386,7 @@ def _send_qc_email(
         extra_attachments=extra if extra else None,
     )
     if not sent:
-        print("⚠️ [邮件] 未发送成功，请检查 .env 中 EMAIL_PASSWORD 及 smtp 配置")
+        logger.warning("邮件未发送成功，请检查 .env 中 EMAIL_PASSWORD 及 smtp 配置")
 
 
 # ─────────────────────────── 公开入口 ─────────────────────────────────────────
@@ -411,7 +429,7 @@ def run_qc(
     path_to_md5 = _collect_fingerprints(video_paths)
     paths_need_sample = _filter_duplicates(video_paths, path_to_md5, db_path)
 
-    print(f"\n🚀 [指挥部] 质量准入标准 {gate}%")
+    logger.info("指挥部 质量准入标准 %s%%", gate)
 
     # ── 2. 视觉模型预检 ──────────────────────────────────────────────────────
     vision_cfg = cfg.get("vision") or {}
@@ -421,16 +439,14 @@ def run_qc(
     vision_model_load_failed = vision_enabled and (vision_model is None)
     vision_version = vision_detector.get_vision_model_version(cfg) or (cfg.get("version_mapping") or {}).get("vision_model_version") or "—"
     vision_status = "已开启" if vision_enabled else "未开启"
-    print(f"\n🚀 [质检] 批次: {batch_id} | 质量检测（抽检 {qc_sample_seconds}s/视频）")
-    print("  质量要求清单:")
-    print(f"    亮度 brightness: {qc_cfg.get('min_brightness', 55)} ~ {qc_cfg.get('max_brightness', 225)}")
-    print(f"    模糊 blur: 不低于 {qc_cfg.get('min_blur_score', 20)}")
-    print(f"    抖动 jitter: 不高于 {qc_cfg.get('max_jitter', 35)}")
-    print(f"    对比度 contrast: {qc_cfg.get('min_contrast', 15)} ~ {qc_cfg.get('max_contrast', 100)}")
-    print(f"  本批次视觉检测: {vision_status} | 模型: {vision_model_path} | 版本: {vision_version}")
+    logger.info("质检 批次=%s 抽检=%ss/视频 质量要求 brightness=%s~%s blur>=%s jitter<=%s contrast=%s~%s 视觉=%s 模型=%s 版本=%s",
+                batch_id, qc_sample_seconds,
+                qc_cfg.get("min_brightness", 55), qc_cfg.get("max_brightness", 225),
+                qc_cfg.get("min_blur_score", 20), qc_cfg.get("max_jitter", 35),
+                qc_cfg.get("min_contrast", 15), qc_cfg.get("max_contrast", 100),
+                vision_status, vision_model_path, vision_version)
     if vision_model_load_failed:
         load_reason = (vision_detector.get_vision_load_error() or "未知原因").strip()
-        print(f"  [运行日志] ⚠️ 视觉模型未成功加载，本批次未进行智能检测。原因: {load_reason}")
         logger.warning("批次 %s 视觉模型未加载 model_path=%s 原因=%s", batch_id, vision_model_path, load_reason)
     logger.info("批次 %s 视觉检测 enabled=%s model_path=%s version=%s load_ok=%s",
                 batch_id, vision_enabled, vision_model_path, vision_version, not vision_model_load_failed)
@@ -465,8 +481,7 @@ def run_qc(
         ]
     version_info_path = os.path.join(report_dir, "version_info.json")
     try:
-        with open(version_info_path, "w", encoding="utf-8") as f:
-            json.dump(version_info, f, ensure_ascii=False, indent=2)
+        file_tools.atomic_write_json(version_info_path, version_info)
     except OSError as e:
         logger.warning("写入 version_info.json 失败: %s", e)
 

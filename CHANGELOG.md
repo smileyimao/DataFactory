@@ -4,6 +4,40 @@ All notable changes to DataFactory are documented here.
 
 ---
 
+## [2026-03-06] P0 Compliance: Atomic Writes + Observability + Schema Validation
+
+- **TYPE**: RELIABILITY / OBSERVABILITY / INTEGRITY / SECURITY
+- **CHANGE**: Full audit against `.cursor/rules/compliance.mdc`; fix all P0 violations.
+- **IMPACT**: Ingest → QC → Admission → Archive; all manifest/config/report writes; pipeline and guard logging.
+- **PROTOCOL**: P0 Reliability (temp → fsync → replace); P0 Observability (structured logger, batch_id context); P0 Integrity (manifest schema check); P0 Security (no hardcoded secrets).
+
+**Atomic writes (P0 Reliability)**:
+- **`utils/file_tools.py`**: New `atomic_write_text()` and `atomic_write_json()` (temp file → flush → fsync → replace).
+- **`utils/usage_tracker.py`**: `_save()` now uses `file_tools.atomic_write_json()` (with fsync).
+- **`core/qc_engine.py`**: `version_info.json`, QC manifest writes (2 处) via `file_tools.atomic_write_json()`.
+- **`core/pending_queue.py`**: Queue JSON (add_items, _save_queue) via `file_tools.atomic_write_json()`.
+- **`labeling/labeling_export.py`**: `manifest_for_labeling.json` and pool manifest via `atomic_write_json()`.
+- **`utils/report_tools.py`**: All report outputs (JSON manifest, quality_report.html, batch_industrial_report.html, vision_report.html) via `atomic_write_text` / `atomic_write_json`.
+- **`labeling/labeled_return.py`**: `comparison_report.json` via `atomic_write_json()`.
+- **`vision/production_tools.py`**: Pseudo-label `.txt` files via `atomic_write_text()`.
+- **`labeling/annotation_upload.py`**: SAM polygon `.poly.json` via `atomic_write_json()`.
+- **`dashboard/sentinel.py`**: CSV session log header via `atomic_write_text()`.
+
+**Observability (P0)**:
+- **`core/qc_engine.py`**, **`core/archiver.py`**, **`core/guard.py`**, **`core/pipeline.py`**, **`core/ingest.py`**: All `print()` replaced with `logger.info` / `logger.warning` / `logger.exception` (batch_id / context preserved).
+- **`vision/production_tools.py`**, **`labeling/labeled_return.py`**, **`labeling/annotation_upload.py`**: Same; `logger` added where missing.
+- **`vision/vision_detector.py`**: YOLO scan status `print()` → `logger.info`.
+- **`utils/notifier.py`**: Redundant `print()` removed (already has `logger.warning`).
+- **`utils/logging.py`**: `console=True` parameter on all production entry points (`main.py`, `tools.py`), so structured logs appear on terminal in real time.
+
+**Schema validation (P0 Integrity)**:
+- **`core/qc_engine.py`**: Manifest items validated for required fields (`file`, `score`) after JSON load; malformed entries logged and skipped.
+
+**Security (P0)**:
+- **`docker-compose.yml`**: `POSTGRES_DB/USER/PASSWORD` now read from environment variables with safe defaults (`${POSTGRES_PASSWORD:-datafactory}`), eliminating hardcoded credentials.
+
+---
+
 ## v3.9 — Foundation Models + Ops Tooling
 
 - **`vision/foundation_models.py`** (new): `ClipEmbedder` (semantic dedup, FPS diversity sampling, scene classification) + `SamRefiner` (bbox→polygon); lazy-loaded, gracefully degrade to `None` when packages absent

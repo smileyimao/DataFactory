@@ -28,12 +28,10 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
-    """原子写入使用记录，自动创建 logs/ 目录。"""
+    """P0 原子写：temp -> fsync -> replace。"""
+    from utils import file_tools
     os.makedirs(_LOGS_DIR, exist_ok=True)
-    tmp = _USAGE_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, _USAGE_FILE)
+    file_tools.atomic_write_json(_USAGE_FILE, data)
 
 
 # ─────────────────────────── 公开 API ──────────────────────────────────────

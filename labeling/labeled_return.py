@@ -493,15 +493,14 @@ def run_full_pipeline(
     # 写差异报告到 import 目录
     report_path = os.path.join(import_dir, "comparison_report.json")
     if not dry_run:
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "import_id": import_id,
-                "consistency_rate": consistency_rate,
-                "threshold": threshold,
-                "passed": passed,
-                "diff_count": len(diff_report),
-                "diff_report": diff_report,
-            }, f, indent=2, ensure_ascii=False)
+        file_tools.atomic_write_json(report_path, {
+            "import_id": import_id,
+            "consistency_rate": consistency_rate,
+            "threshold": threshold,
+            "passed": passed,
+            "diff_count": len(diff_report),
+            "diff_report": diff_report,
+        })
 
     if not passed and not dry_run:
         send_alert(cfg, import_id, consistency_rate, threshold, diff_report)
@@ -525,7 +524,7 @@ def run_full_pipeline(
                 filename_filter=refinery_returned,
             )
             refinery_sample_count = len(refinery_returned)
-            print(f"   🔍 Refinery 抽检: {refinery_sample_count} 帧, 一致率 {refinery_rate:.2%}")
+            logger.info("Refinery 抽检: %d 帧, 一致率 %s", refinery_sample_count, f"{refinery_rate:.2%}")
             if refinery_rate < threshold:
                 send_refinery_alert(cfg, import_id, refinery_rate, threshold, refinery_diff, refinery_sample_count)
 

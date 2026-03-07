@@ -20,6 +20,22 @@ if PROJECT_ROOT not in sys.path:
 os.environ.setdefault("DATAFLOW_TEST", "1")
 
 
+def pytest_addoption(parser):
+    """简化命令：--unit 单元测试，--e2e 全链路（等价 tools.py --test）；均不捕获 stdout，便于看进度。"""
+    parser.addoption("--unit", action="store_true", help="跑单元测试（等价 -m 'not slow'），输出进度")
+    parser.addoption("--e2e", action="store_true", help="跑全链路 E2E（等价 tools.py --test，用 storage/test/original 跑整条 pipeline）")
+
+
+def pytest_configure(config):
+    """--unit / --e2e 时自动设 marker 且不捕获 stdout，避免误以为卡死。"""
+    if config.getoption("--e2e", default=False):
+        config.option.markexpr = "full_pipeline"  # 只跑「整条 pipeline」= 等价 tools.py --test
+        config.option.capture = "no"
+    elif config.getoption("--unit", default=False):
+        config.option.markexpr = "not slow"
+        config.option.capture = "no"
+
+
 @pytest.fixture(scope="session")
 def project_root() -> str:
     """项目根目录。"""

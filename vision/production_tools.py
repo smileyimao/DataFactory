@@ -1,12 +1,15 @@
 # vision/production_tools.py — 在视频/图片上跑质检并生成 manifest/报告（调用 quality_tools + report_tools）
 import os
 import shutil
+import logging
 from typing import List, Any, Dict, Optional
 
 import cv2
 from tqdm import tqdm
 
 from utils import file_tools
+
+logger = logging.getLogger(__name__)
 from . import quality_tools
 from utils import report_tools
 from . import frame_io
@@ -86,8 +89,7 @@ def _write_yolo_label(txt_path: str, detections: List[Dict[str, Any]]) -> None:
         if "conf" in d:
             line += f" {d['conf']:.4f}"
         lines.append(line)
-    with open(txt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    file_tools.atomic_write_text(txt_path, "\n".join(lines))
 
 
 def run_production(
@@ -145,7 +147,7 @@ def run_production(
             conf_threshold = detected_confs[cutoff_idx]
         else:
             conf_threshold = float(qc_cfg.get("approved_split_confidence_threshold", 0.60))
-        print(f"   📐 动态分流门槛: {conf_threshold:.3f}（前 {refinery_top_pct:.0f}% 高置信帧 → refinery，绝对下限 {refinery_min_conf:.2f}）")
+        logger.info("动态分流门槛: %s（前 %s%% 高置信帧 → refinery，绝对下限 %s）", conf_threshold, refinery_top_pct, refinery_min_conf)
     else:
         conf_threshold = float(qc_cfg.get("approved_split_confidence_threshold", 0.60))
     # 归档阶段帧提取间隔与 YOLO 检测对齐；QC 阶段（limit_seconds 非空）仍用 1 秒
@@ -242,9 +244,9 @@ def run_production(
             report_tools.generate_html_report(
                 all_stats, target_dir, batch_id, mode, pass_rate_gate=gate, copy_to_dir=reports_archive_dir
             )
-            print("✅ [产线日志] 数字化清单与质量报告已生成完毕。")
+            logger.info("产线日志: 数字化清单与质量报告已生成完毕")
         else:
-            print("✅ [产线日志] 数字化清单已生成（燃料目录，无报告）。")
+            logger.info("产线日志: 数字化清单已生成（燃料目录，无报告）")
     except Exception as e:
-        print(f"⚠️ [产线告警] 报告生成环节出现异常，但图片分拣已完成: {e}")
+        logger.warning("产线告警: 报告生成环节出现异常，但图片分拣已完成: %s", e)
     return len(all_stats)

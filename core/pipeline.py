@@ -35,9 +35,6 @@ def _batch_summary(
     throughput_gb_h = size_gb / (elapsed / 3600) if elapsed > 0 else 0.0
     files_per_h = file_count / (elapsed / 3600) if elapsed > 0 else 0.0
 
-    print(f"📊 [批次摘要] Batch {batch_id} | 文件 {file_count} 个，{size_gb:.3f} GB，总耗时 {elapsed:.1f} 秒")
-    print(f"   阶段耗时: Ingest {d_ingest:.1f}s | QC {d_qc:.1f}s | Review {d_review:.1f}s | Archive {d_archive:.1f}s")
-    print(f"   吞吐量: {throughput_gb_h:.2f} GB/h，{files_per_h:.1f} 文件/h")
     logger.info(
         "批次摘要: batch_id=%s 文件数=%d 总大小_GB=%.3f 耗时_秒=%.1f "
         "ingest=%.1f qc=%.1f review=%.1f archive=%.1f throughput_gb_h=%.2f files_per_h=%.1f",
@@ -186,7 +183,7 @@ def _run_pipeline(
     """实际流程实现，由 run_smart_factory 包裹顶层异常捕获后调用。"""
     modality = modality_handlers.get_modality(cfg)
     if modality not in ("video", "image"):
-        print(f"❌ 当前仅支持 modality=video/image，config 中 modality={modality} 将在 v3 实现（audio/vibration）。")
+        logger.warning("当前仅支持 modality=video/image，config 中 modality=%s 将在 v3 实现", modality)
         logger.warning("modality=%s 未实现，跳过 pipeline", modality)
         return
 
@@ -195,17 +192,17 @@ def _run_pipeline(
         paths = cfg.get("paths", {})
         raw = paths.get("raw_video", "")
         if video_paths:
-            print("❌ 警告：指定的视频路径无效或文件不存在。")
+            logger.warning("指定的视频路径无效或文件不存在")
         else:
-            print(f"❌ 警告：未发现视频物料：{raw}")
+            logger.warning("未发现视频物料: %s", raw)
         return
 
     # Ingest 预检：dedup + 首帧解码，失败项移入 quarantine
     if cfg.get("ingest", {}).get("pre_filter_enabled", False):
-        print("\n🔍 [Ingest 预检] dedup + 首帧解码检查...")
+        logger.info("Ingest 预检: dedup + 首帧解码检查")
         videos, q_stats = ingest.pre_filter(cfg, videos)
         if not videos:
-            print("❌ 预检后无有效物料（全部已隔离至 quarantine）")
+            logger.warning("预检后无有效物料（全部已隔离至 quarantine）")
             return
 
     start_time = time.time()
@@ -222,7 +219,7 @@ def _run_pipeline(
         if review_mode == "dashboard":
             n = pending_queue.add_items(cfg, blocked, path_info)
             if n:
-                print(f"📋 [待复核队列] 本批 {n} 项已入队，厂长可打开中控台复核: python -m dashboard.app")
+                logger.info("待复核队列: 本批 %d 项已入队，厂长可打开中控台复核 python -m dashboard.app", n)
         else:
             timeout = cfg.get("review", {}).get("timeout_seconds", 600)
             added_produce, review_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
@@ -238,7 +235,7 @@ def _run_pipeline(
     # 待标池自动更新：本批 inspection 追加到 for_labeling
     updated = labeling_export.auto_update_after_batch(cfg, path_info)
     if updated:
-        print(f"📋 [待标池] 已自动更新: {updated}")
+        logger.info("待标池已自动更新: %s", updated)
     t_archive = time.time()
 
     _batch_summary(

@@ -1,14 +1,16 @@
 # tests/e2e/test_main_full_pipeline.py
-"""端到端：调用 tools.py --test 跑全链路，验证临时环境、无异常退出。"""
+"""
+端到端全链路测试：直接调用 tools.run_full_pipeline_test()，
+用 storage/test/original/ 里的视频跑整条 pipeline（Ingest → QC → Archive → 报告）。
+临时环境，不污染真实 storage/DB，测完自动清理。
+
+使用方式：pytest tests/ --e2e
+"""
 import os
-import subprocess
-import sys
 import pytest
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.full_pipeline, pytest.mark.slow]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 VIDEO_EXT = (".mov", ".mp4", ".avi", ".mkv")
 
 
@@ -27,23 +29,10 @@ def _test_source_has_videos(project_root: str) -> bool:
     return False
 
 
-@pytest.mark.slow
 def test_main_test_mode_full_pipeline(project_root):
-    """tools.py --test：临时环境跑全链路，应正常退出（exit 0）。
-    标记为 slow，日常 CI 用 pytest -m 'not slow' 跳过；完整回归用 pytest -m slow 单独跑。
-    """
+    """全链路 E2E：临时环境跑整条 pipeline，等价 python tools.py --test。"""
     if not _test_source_has_videos(project_root):
         pytest.skip("paths.test_source 下无视频，跳过全链路测试。请在 storage/test/original/ 放入测试视频。")
 
-    result = subprocess.run(
-        [sys.executable, "tools.py", "--test"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
-    )
-
-    assert result.returncode == 0, (
-        f"tools.py --test 异常退出 {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
+    from tools import run_full_pipeline_test
+    run_full_pipeline_test()

@@ -6,7 +6,7 @@ import base64
 import shutil
 from datetime import datetime
 
-from utils import time_utils
+from utils import time_utils, file_tools
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -16,11 +16,10 @@ import matplotlib.pyplot as plt
 
 
 def generate_json_manifest(data_list: List[Any], target_path: str, filename: str = "manifest.json") -> str:
-    """将列表写入 target_path/filename，返回写入文件路径。"""
+    """将列表写入 target_path/filename（P0 原子写），返回写入文件路径。"""
     os.makedirs(target_path, exist_ok=True)
     out = os.path.join(target_path, filename)
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(json.dumps(data_list, indent=4, ensure_ascii=False))
+    file_tools.atomic_write_json(out, data_list, indent=4)
     return out
 
 
@@ -120,8 +119,7 @@ th {{ background: #34495e; color: white; }}
 </html>
 """
     out = os.path.join(target_path, "quality_report.html")
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(html_content)
+    file_tools.atomic_write_text(out, html_content)
     if copy_to_dir:
         os.makedirs(copy_to_dir, exist_ok=True)
         archive_html = os.path.join(copy_to_dir, f"{batch_id}_quality_report.html")
@@ -252,8 +250,7 @@ th {{ background: #34495e; color: #fff; font-weight: 600; }}
 </html>
 """
     out = os.path.join(qc_dir, "batch_industrial_report.html")
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(html_content)
+    file_tools.atomic_write_text(out, html_content)
     return out
 
 
@@ -355,6 +352,5 @@ th {{ background: #34495e; color: #fff; }}
 </html>
 """
     out = os.path.join(qc_dir, "vision_report.html")
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(html_content)
+    file_tools.atomic_write_text(out, html_content)
     return out

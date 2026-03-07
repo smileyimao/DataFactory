@@ -33,14 +33,12 @@ def startup_scan(cfg: dict = None) -> None:
     if not paths:
         logger.info("开机自检: 未发现存量视频")
         return
-    logger.info("开机自检: 发现 %d 个存量视频，作为一批送入工厂", len(paths))
-    print(f"\n🧹 [开机大扫除] 发现 {len(paths)} 个存量视频，作为一批送入工厂...")
+    logger.info("开机大扫除: 发现 %d 个存量视频，作为一批送入工厂", len(paths))
     try:
         pipeline.run_smart_factory(cfg=cfg, video_paths=paths)
     except Exception as e:
         logger.exception("开机大扫除批处理异常: %s", e)
-        print(f"❌ [开机大扫除] 批处理异常: {e}")
-    print("🧹 [开机大扫除] 存量处理完毕，启动实时监控。\n")
+    logger.info("开机大扫除: 存量处理完毕，启动实时监控")
 
 
 def _get_media_extensions(cfg: dict) -> tuple:
@@ -65,7 +63,7 @@ def _handle_new_file(handler_self, path: str):
     if not _is_media(name, exts):
         return
     abs_path = os.path.abspath(path)
-    print(f"\n📡 [保安报告]: 监测到新物料 -> {name}，等待写入稳定并凑批...")
+    logger.info("保安报告: 监测到新物料 %s，等待写入稳定并凑批", name)
     file_tools.wait_file_stable(abs_path, handler_self._stable_interval, handler_self._stable_min)
     with handler_self._lock:
         if handler_self._timer:
@@ -104,7 +102,6 @@ class VideoFolderHandler(FileSystemEventHandler):
                     return
                 self._processing = True
             try:
-                print(f"\n📡 [保安报告] 本批共 {len(paths)} 个物料，送入工厂...")
                 logger.info("批处理: 本批 %d 个文件送入工厂", len(paths))
                 pipeline.run_smart_factory(cfg=self._cfg, video_paths=paths)
             finally:
@@ -114,9 +111,8 @@ class VideoFolderHandler(FileSystemEventHandler):
                     self._pending_flush = False
             if not need_retry:
                 break
-            print("\n📡 [保安报告] 产线加工期间有新物料写入，立即再扫 raw 目录...")
             logger.info("产线加工期间有新物料，立即再扫 raw 目录")
-        print(f"\n{'=' * 50}\n🛡️  保安继续巡逻中...")
+        logger.info("保安继续巡逻中")
 
     def on_created(self, event):
         if event.is_directory:
@@ -200,7 +196,7 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     db_path = cfg.get("paths", {}).get("db_url", "")
     if db_path:
         if not db_tools.init_db(db_path):
-            print("❌ 数据库初始化失败，请检查 DATABASE_URL 配置。")
+            logger.error("数据库初始化失败，请检查 DATABASE_URL 配置")
             import sys
             sys.exit(1)
     watch_path = cfg.get("paths", {}).get("raw_video", "")
@@ -211,9 +207,7 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     health_port = cfg.get("ingest", {}).get("health_port", 0)
     _start_health_server(health_port, _guard_start_time)
     startup_scan(cfg)
-    print("🚀 [DataFactory 自动工厂启动]")
-    print(f"📍 监控路径: {os.path.abspath(watch_path)}")
-    print("🤖 运行模式: 批处理 → 先检测（质量+重复）→ 一封邮件 → 再逐项询问放行/丢弃")
+    logger.info("DataFactory 自动工厂启动 监控路径=%s", os.path.abspath(watch_path))
     observer = Observer()
     handler = VideoFolderHandler(cfg)
     observer.schedule(handler, watch_path, recursive=True)
@@ -231,7 +225,6 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
         )
         poll_thread.start()
         logger.info("轮询兜底已启动，间隔 %s 秒", poll_interval)
-        print(f"📡 轮询兜底: 每 {poll_interval}s 扫一次 raw（Watchdog 漏检时仍能发现）")
 
     try:
         while True:
@@ -243,5 +236,5 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     finally:
         poll_stop.set()
         observer.stop()
-        print("\n👋 保安已安全下班。")
+        logger.info("保安已安全下班")
     observer.join()

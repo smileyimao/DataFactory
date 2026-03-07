@@ -136,5 +136,6 @@ def pre_filter(cfg: dict, video_paths: List[str]) -> Tuple[List[str], dict]:
         passed.append(path)
 
     if stats["quarantine_duplicate"] or stats["quarantine_decode_failed"] or stats["quarantine_semantic_dup"]:
-        print(f"   📋 [Ingest 预检] 共隔离 {stats['quarantine_duplicate']} 重复 + {stats['quarantine_decode_failed']} 解码失败 + {stats['quarantine_semantic_dup']} 语义重复，{len(passed)} 个进入 pipeline")
+        logger.info("Ingest 预检: 隔离 重复=%d 解码失败=%d 语义重复=%d，%d 个进入 pipeline",
+                    stats["quarantine_duplicate"], stats["quarantine_decode_failed"], stats["quarantine_semantic_dup"], len(passed))
     return passed, stats
