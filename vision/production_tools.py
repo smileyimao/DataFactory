@@ -172,7 +172,7 @@ def run_production(
             fps = int(cv2.VideoCapture(v_path).get(cv2.CAP_PROP_FPS) or 25)
             if use_i_frame:
                 max_dur = float(limit_seconds) if limit_seconds else None
-                frames_with_idx = frame_io.sample_i_frames(v_path, 1.0, max_duration_seconds=max_dur)
+                frames_with_idx = frame_io.sample_i_frames(v_path, _sample_sec, max_duration_seconds=max_dur)
             else:
                 frames_with_idx = []
                 cap = cv2.VideoCapture(v_path)
