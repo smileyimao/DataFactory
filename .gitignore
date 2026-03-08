@@ -40,4 +40,4 @@ mlflow_artifacts/
 models/*.pt
 models/registry_cache/
 storage/training/
-storage/labeled_return/
+storage/labeled_return/INTERVIEW_PREP.md

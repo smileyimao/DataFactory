@@ -103,6 +103,7 @@ def run_production(
     use_flat_output: bool = False,
     skip_html_report: bool = False,
     inspection_dir: str = "",
+    **kwargs,
 ) -> int:
     """
     对每段视频按 vision.sample_seconds 抽帧，做质量分析，写 Normal/Warning 图、manifest、报告。
@@ -153,7 +154,11 @@ def run_production(
     # 归档阶段帧提取间隔与 YOLO 检测对齐；QC 阶段（limit_seconds 非空）仍用 1 秒
     _sample_sec = float(cfg.get("vision", {}).get("sample_seconds", 1.0)) if not limit_seconds else 1.0
 
-    pbar = tqdm(video_paths, desc="Processing", unit="file")
+    best_frame_sel = bool(qc_cfg.get("best_frame_selection", False))
+    best_frame_top_k = int(qc_cfg.get("best_frame_top_k", 5))
+
+    _desc = kwargs.pop("tqdm_desc", "Processing")
+    pbar = tqdm(video_paths, desc=_desc, unit="file")
     for v_path in pbar:
         v_name = os.path.basename(v_path)
         dets_map = detections_by_video.get(v_name, {})
@@ -185,6 +190,9 @@ def run_production(
 
         if not frames_with_idx:
             continue
+
+        # -- Pass 1: analyze all frames, collect scores --
+        candidates = []
         prev_gray = None
         for frame, f_idx in frames_with_idx:
             raw, gray = quality_tools.analyze_frame(frame, prev_gray)
@@ -195,18 +203,36 @@ def run_production(
             record = {"frame_id": f_idx, "filename": out_img_name, "source": v_name}
             record.update(raw)
             record["env"] = env
+
+            frame_dets = dets_map.get(f_idx, [])
+            mean_conf = (sum(d.get("conf", 0.0) for d in frame_dets) / len(frame_dets)) if frame_dets else 0.0
+            sharpness = raw.get("bl", 0.0)
+            bf_score = mean_conf * sharpness
+            record["_bf_score"] = bf_score
+
+            candidates.append((frame, f_idx, record, env, frame_dets))
+
+        # -- Pass 2: if best-frame selection is on, keep only top-K per video --
+        if best_frame_sel and len(candidates) > best_frame_top_k and not _is_image_path(v_path):
+            candidates.sort(key=lambda c: c[2]["_bf_score"], reverse=True)
+            kept = candidates[:best_frame_top_k]
+            kept.sort(key=lambda c: c[1])
+            logger.info("Best-frame: %s — %d/%d frames kept (top_k=%d)",
+                        v_name, len(kept), len(candidates), best_frame_top_k)
+            candidates = kept
+
+        # -- Pass 3: write selected frames --
+        for frame, f_idx, record, env, frame_dets in candidates:
             all_stats.append(record)
             img_name = record["filename"]
-            has_detection = len(dets_map.get(f_idx, [])) > 0
+            has_detection = len(frame_dets) > 0
             if save_only_screened:
                 do_write = (env != "Normal" and save_warning) or (has_detection and (save_normal or save_warning))
             else:
                 do_write = (env == "Normal" and save_normal) or (env != "Normal" and save_warning)
             out_dir = None
             if do_write:
-                # 帧级分流：有 inspection_dir 时，按该帧最高置信度决定落哪个目录
                 if do_frame_split:
-                    frame_dets = dets_map.get(f_idx, [])
                     max_conf = max((d.get("conf", 0.0) for d in frame_dets), default=0.0) if frame_dets else 0.0
                     write_dir = target_dir if (max_conf >= conf_threshold and max_conf >= refinery_min_conf) else inspection_dir
                     cv2.imwrite(os.path.join(write_dir, img_name), frame)
@@ -223,7 +249,7 @@ def run_production(
             if out_dir:
                 base, _ = os.path.splitext(img_name)
                 txt_path = os.path.join(out_dir, base + ".txt")
-                dets = dets_map.get(f_idx, []) if detections_by_video else []
+                dets = frame_dets if detections_by_video else []
                 if dets:
                     _write_yolo_label(txt_path, dets)
                 elif _is_image_path(v_path):

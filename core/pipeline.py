@@ -213,6 +213,7 @@ def _run_pipeline(
     print(f"  [Ingest]  {len(videos)} files found", flush=True)
 
     if cfg.get("ingest", {}).get("pre_filter_enabled", False):
+        print("  [Ingest]  Dedup check + first-frame decode ...", flush=True)
         logger.info("Ingest 预检: dedup + 首帧解码检查")
         videos, q_stats = ingest.pre_filter(cfg, videos)
         if not videos:
@@ -221,14 +222,24 @@ def _run_pipeline(
             return
         quarantined = q_stats.get("quarantined", 0) if q_stats else 0
         if quarantined:
-            print(f"  [Ingest]  {len(videos)} passed pre-filter | {quarantined} quarantined", flush=True)
+            print(f"  [Ingest]  {len(videos)} passed | {quarantined} quarantined", flush=True)
 
     start_time = time.time()
     t_ingest = time.time()
     total_bytes = sum(os.path.getsize(p) for p in videos if os.path.isfile(p))
     size_gb = total_bytes / (1024 ** 3)
     gate = cfg.get("production_setting", {}).get("pass_rate_gate", 85.0)
-    print(f"  [QC]      Batch started | {size_gb:.2f} GB | gate: {gate}%", flush=True)
+    vision_cfg = cfg.get("vision", {})
+    prod_cfg = cfg.get("production_setting", {})
+    sample_strategy = "I-frame" if vision_cfg.get("use_i_frame_only") else f"uniform {vision_cfg.get('sample_seconds', 1.0)}s"
+    motion_thr = vision_cfg.get("motion_threshold", 0)
+    if motion_thr:
+        sample_strategy += f" + motion>{motion_thr}"
+    if prod_cfg.get("best_frame_selection"):
+        sample_strategy += f" + best-frame top-{prod_cfg.get('best_frame_top_k', 5)}"
+    print(f"  [QC]      Scoring quality — {size_gb:.2f} GB | gate {gate}%", flush=True)
+    print(f"            Sampling: {sample_strategy}", flush=True)
+    print("            Step 1/3  Sampling frames for quality metrics ...", flush=True)
 
     qc_archive, qualified, blocked, auto_reject, path_info = qc_engine.run_qc(cfg, videos)
     t_qc = time.time()
@@ -236,7 +247,7 @@ def _run_pipeline(
     n_pass = len(qualified)
     n_block = len(blocked) if blocked else 0
     n_reject = len(auto_reject)
-    print(f"  [QC]      {n_pass} passed | {n_block} review | {n_reject} rejected", flush=True)
+    print(f"  [QC]      Result: {n_pass} passed | {n_block} review | {n_reject} rejected", flush=True)
 
     to_fuel = list(qualified)
     to_reject = list(auto_reject)
@@ -247,7 +258,7 @@ def _run_pipeline(
             n = pending_queue.add_items(cfg, blocked, path_info)
             if n:
                 logger.info("待复核队列: 本批 %d 项已入队，厂长可打开中控台复核 python -m dashboard.app", n)
-                print(f"  [Review]  {n} items queued for manual review", flush=True)
+                print(f"  [Review]  {n} items queued — open dashboard to review", flush=True)
         else:
             timeout = cfg.get("review", {}).get("timeout_seconds", 600)
             added_produce, review_reject = reviewer.review_blocked(blocked, path_info["gate"], timeout_seconds=timeout)
@@ -256,7 +267,8 @@ def _run_pipeline(
     t_review = time.time()
 
     archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
-    print(f"  [Archive] Archiving batch {path_info['batch_id']} ...", flush=True)
+    print(f"  [Archive] Batch {path_info['batch_id']}", flush=True)
+    print("            Extracting frames + writing pseudo-labels ...", flush=True)
     archiver.archive_produced(cfg, to_fuel, to_human, path_info)
     metrics.inc("batch_processed_total")
     _record_batch_lineage(cfg, path_info)

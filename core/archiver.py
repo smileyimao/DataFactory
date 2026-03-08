@@ -208,6 +208,7 @@ def _run_produce_chunk(
         use_flat_output=use_flat_output,
         skip_html_report=skip_html_report,
         inspection_dir=inspection_dir,
+        tqdm_desc=f"Writing {label}",
     )
     logger.info("%s: 共加工 %d 张样图 -> %s", label, count, os.path.abspath(target_dir))
     ts = time_utils.now_toronto(cfg).strftime("%Y-%m-%d %H:%M:%S")

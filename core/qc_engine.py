@@ -129,6 +129,7 @@ def _run_sampling(
                             production_tools.run_production(
                                 [video_path], temp_v, batch_id, cfg_video,
                                 limit_seconds=qc_sample_seconds, reports_archive_dir=report_dir,
+                                tqdm_desc="QC sampling",
                             )
                             mf = os.path.join(temp_v, "manifest.json")
                             if os.path.isfile(mf):
@@ -141,10 +142,11 @@ def _run_sampling(
                 production_tools.run_production(
                     paths_need_sample, temp_qc, batch_id, cfg,
                     limit_seconds=qc_sample_seconds, reports_archive_dir=report_dir,
+                    tqdm_desc="QC sampling",
                 )
 
+            print("            Step 2/3  Moving source files to archive ...", flush=True)
             os.makedirs(source_archive_dir, exist_ok=True)
-            # 按绝对路径去重，避免同一文件出现两次导致第二次 move 报 No such file
             seen = set()
             unique_paths = []
             for p in video_paths:
@@ -469,6 +471,7 @@ def run_qc(
     }
     logger.info("版本映射: algorithm_version=%s vision_model_version=%s",
                 version_info["algorithm_version"], version_info["vision_model_version"])
+    print("            Step 3/3  YOLO object detection scan ...", flush=True)
     vision_result = vision_detector.run_vision_scan(
         cfg, [item["archive_path"] for item in qc_archive], return_detections=True,
     )

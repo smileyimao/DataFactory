@@ -41,7 +41,7 @@ try:
 except ImportError:
     requests = None
 
-from cvat_api import _get_session, CVAT_URL
+from scripts.cvat.cvat_api import _get_session, CVAT_URL
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp"}
 

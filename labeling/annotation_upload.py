@@ -162,7 +162,7 @@ def _upload_cvat(cfg: dict, for_labeling: str, archive_dir: str, task_name: str)
         export_task_zip_flat(for_labeling, z1)
         if upload_pseudo:
             export_cvat_native(for_labeling, z2, class_names=_COCO_NAMES)
-        from cvat_api import auto_cvat_upload
+        from scripts.cvat.cvat_api import auto_cvat_upload
         url = auto_cvat_upload(for_labeling, z1, z2, task_name=task_name)
         logger.info("CVAT 上传成功: %s", url)
         return url or ""

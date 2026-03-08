@@ -21,7 +21,7 @@ except ImportError:
 # 从 .env 加载
 try:
     from dotenv import load_dotenv
-    _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     load_dotenv(os.path.join(_base, ".env"))
 except ImportError:
     pass

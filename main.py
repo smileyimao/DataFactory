@@ -59,7 +59,7 @@ _W = 56  # fixed-width ruler
 
 _DASHBOARDS = {
     "Review":   ("http://127.0.0.1:8765", "python -m dashboard.app"),
-    "Sentinel": ("http://127.0.0.1:8766", "python dashboard/sentinel.py"),
+    "Sentinel": ("http://127.0.0.1:8766", "python dashboard/sentinel.py --source archive"),
     "HQ":       ("http://127.0.0.1:8767", "python dashboard/hq.py"),
 }
 
