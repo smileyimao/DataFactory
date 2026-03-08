@@ -40,4 +40,7 @@ mlflow_artifacts/
 models/*.pt
 models/registry_cache/
 storage/training/
-storage/labeled_return/INTERVIEW_PREP.md
+storage/labeled_return/
+
+# 本地个人文件
+INTERVIEW_PREP.md
