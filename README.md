@@ -67,7 +67,7 @@ python main.py --auto-cvat       # Auto-create CVAT labeling task after archive
 
 # Ops / debug tools (non-pipeline)
 python tools.py --probe          # Hardware detection and auto-config summary
-# 测试：pytest tests/ --unit（单元） 或 pytest tests/ --e2e（E2E）
+# Run tests: pytest tests/ --unit (unit) or pytest tests/ --e2e (E2E)
 python tools.py --usage-report   # Feature usage report (last 30 days)
 
 # Dashboards
@@ -78,11 +78,11 @@ python dashboard/hq.py           # HQ Command Center   http://127.0.0.1:8767
 
 First run creates `storage/` directories automatically. Database: set `DATABASE_URL=postgresql://...` in `.env` for PostgreSQL (production); without it the pipeline exits with an error prompting you to configure the URL — use the SQLite fallback (`db_file` path) only for `--test` / dev isolation.
 
-**Run tests**（统一用 pytest；两条命令都会在终端输出进度，不会误以为卡死）：
+**Run tests** (both commands print progress to terminal):
 
 ```bash
-pytest tests/ --unit    # 单元测试（等价 -m "not slow"）
-pytest tests/ --e2e    # 全链路 E2E，等价 python tools.py --test（用 storage/test/original 跑整条 pipeline）
+pytest tests/ --unit    # unit tests (equivalent to -m "not slow")
+pytest tests/ --e2e    # full end-to-end pipeline test (uses storage/test/original)
 ```
 
 **CVAT local setup** (one-time):
@@ -128,7 +128,7 @@ python scripts/db/migrate_sqlite_to_pg.py
 | Scripts   | `scripts/mlflow/` | `train_model`, `compare_models`, `register_model`, `download_models`                                                              |
 | Scripts   | `scripts/db/`     | `migrate_sqlite_to_pg`                                                                                                            |
 | Scripts   | `scripts/`        | `reset_factory`, `query_lineage`, `import_labeled_return`                                                                         |
-| Tests     | `tests/`          | 统一 pytest：`pytest tests/ --unit`（单元）、`pytest tests/ --e2e`（E2E）                                                          |
+| Tests     | `tests/`          | `pytest tests/ --unit` (unit) · `pytest tests/ --e2e` (end-to-end)                                                               |
 
 
 DB tables: `production_history`, `batch_metrics`, `batch_lineage`, `label_import`, `model_train`.
@@ -178,7 +178,7 @@ See **[CHANGELOG.md](CHANGELOG.md)** for full per-version details.
 | `python scripts/mlflow/register_model.py path/to/model.pt --name vehicle_detector` | Register model to Registry                                                  |
 | `python scripts/db/migrate_sqlite_to_pg.py`                                        | Idempotent SQLite → PostgreSQL migration                                    |
 | `python tools.py --probe`                                                          | Hardware detection: device, RAM/VRAM, auto-configured model sizes           |
-| `python tools.py --test [--gate N]`                                                | 临时环境跑全链路（与 `pytest tests/ --e2e` 等价，可互换）                    |
+| `python tools.py --test [--gate N]`                                                | Full pipeline test in isolated temp env (equivalent to `pytest tests/ --e2e`) |
 | `python tools.py --usage-report [--days N]`                                        | Feature usage report for the last N days (default 30)                       |
 | `python tools.py --usage-reset FEATURE|all`                                        | Reset usage counter for one feature or all                                  |
 
