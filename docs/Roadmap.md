@@ -27,7 +27,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Ingest                                                   │
+│  Ingest                                                  │
 │  raw_video/ [done]   raw_lidar/ [v4]                     │
 │  Auto-modality: image/video/both [v2.10 done]            │
 │  audio/lidar/vibration [v3 TODO]                         │
@@ -36,25 +36,25 @@
                            ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Funnel QC                                               │
-│  (1) 指纹去重 [done]  MD5 → DB → 命中归入 redundant      │
-│  (1a) Ingest 预检 [v2.8]  dedup + 首帧解码 → quarantine  │
-│  (2) 质量检测 [done]  blur/brightness/jitter + 可扩展     │
+│  (1) 指纹去重 [done]  MD5 → DB → 命中归入 redundant         │
+│  (1a) Ingest 预检 [v2.8]  dedup + 首帧解码 → quarantine    │
+│  (2) 质量检测 [done]  blur/brightness/jitter + 可扩展      │
 └──────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Admission [done]                                        │
-│  自动放行 + HITL；邮件摘要 → Terminal y/n 或 Dashboard   │
+│  自动放行 + HITL；邮件摘要 → Terminal y/n 或 Dashboard      │
 └──────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Archive [done]                                          │
-│  Batch_xxx/source  源视频                                │
-│  Batch_xxx/refinery  高置信（含伪标签 .txt）             │
-│  Batch_xxx/inspection  低置信（待人工标注）              │
-│  Batch_xxx/reports  质检报告                             │
-│  rejected_material/  废片   redundant_archives/  重复    │
+│  Batch_xxx/source  源视频                                 │
+│  Batch_xxx/refinery  高置信（含伪标签 .txt）                │
+│  Batch_xxx/inspection  低置信（待人工标注）                 │
+│  Batch_xxx/reports  质检报告                              │
+│  rejected_material/  废片   redundant_archives/  重复     │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -93,7 +93,9 @@
 | **v3.7** | ✅ 完成 | Site Status 实时本地时间（pytz）+ OpenWeatherMap 真实天气（API Key）；Flask 端点 `/api/sites/time` `/api/sites/weather`；`engines/site_info.py` 10 分钟缓存 |
 | **v3.9** | ✅ 完成 | CLIP/SAM 基础模型集成（opt-in，缺包优雅降级）：语义去重、FPS 多样性采样、场景自适应阈值、SAM polygon 预标注；硬件自动检测（`system_probe`）；功能使用追踪（`usage_tracker`）；`tools.py` 运维 CLI |
 | **P0 合规** | ✅ 完成 | 原子写全覆盖（含 qc_engine manifest×2、annotation_upload .poly.json、sentinel CSV）；生产 pipeline 去 `print()` 改 logger（archiver×3、vision_detector×1、notifier×1）；manifest schema 校验（必需字段 file/score）；docker-compose 密码不硬编码；`console=True` 终端实时日志 |
-| **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration）；v2.11 manifest 字段实现 |
+| **断电恢复** | ✅ 完成 | `storage/in_progress/{batch_id}.json` 原子标记（归档前写入/完成后清除）；Guard 开机扫描残留标记并 CRITICAL 告警；`scripts/datafactory.service` systemd 单元（`Restart=always`，`After=docker.service`，来电自动重启无需人工）；File-DB 事务顺序保护（archive → lineage → metrics）|
+| **v2.11** | ✅ 完成 | 主动学习标注优先级：`max_conf` 写入帧级 manifest；inspection 导出按置信度升序排列 + `{rank:06d}_` 文件前缀；CVAT 自动展示最不确定帧优先 |
+| **v3.x** | 🔶 进行中 | Auto-modality 扩展（audio/lidar/vibration） |
 | **v4.x** | ⬜ 待做 | 多模态、FFT、Edge 部署、多节点、访问控制、HQ 真实数据接入 |
 
 ---
@@ -198,9 +200,9 @@
 
 - [x] skip_empty_labels：并入训练时跳过空 .txt 帧
 - [x] 设计文档：docs/active_labeling_priority.md
-- [ ] production_tools：写 max_confidence、qc_env 到 manifest
-- [ ] labeling_export：manifest 含优先级字段；--sort-by-priority
-- [ ] export_for_cvat：可选按优先级排序导出
+- [x] production_tools：`max_conf` 写入每帧 manifest record（v2.11）
+- [x] labeling_export：inspection 按 `max_conf` 升序排列，文件名加 `{rank:06d}_` 前缀；manifest 含 `max_conf` / `priority` 字段（v2.11）
+- [ ] export_for_cvat：可选按优先级排序导出（已由 labeling_export 前缀机制覆盖）
 
 ---
 

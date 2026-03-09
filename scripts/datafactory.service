@@ -1,0 +1,50 @@
+# DataFactory systemd 服务单元
+# 用途：边缘设备来电后自动启动 Pipeline Guard，无需人工干预。
+#
+# 安装步骤（在边缘 Linux 设备上执行）：
+#   sudo cp scripts/datafactory.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable datafactory    # 开机自启
+#   sudo systemctl start datafactory     # 立即启动
+#
+# 常用运维命令：
+#   sudo systemctl status datafactory    # 查看运行状态
+#   sudo journalctl -u datafactory -f    # 实时查看日志
+#   sudo systemctl restart datafactory   # 手动重启
+
+[Unit]
+Description=DataFactory Pipeline Guard — Industrial Edge MLOps
+# 等待网络和 Docker（PostgreSQL）就绪后再启动
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=datafactory
+Group=datafactory
+WorkingDirectory=/opt/datafactory
+
+# 从 .env 加载 DATABASE_URL 等环境变量
+EnvironmentFile=/opt/datafactory/.env
+
+# 启动前先确保 PostgreSQL 容器已运行
+ExecStartPre=/usr/bin/docker compose up -d
+
+# 主进程：Guard 模式持续监控
+ExecStart=/opt/datafactory/.venv/bin/python main.py --guard
+
+# 崩溃或断电来电后自动重启，等待 15 秒（给 Docker/PG 充分启动时间）
+Restart=always
+RestartSec=15
+
+# 日志直接输出到 journald，无需额外配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=datafactory
+
+# 进程终止前最多等待 30 秒，确保当前 Batch 能写完
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

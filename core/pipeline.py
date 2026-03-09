@@ -1,4 +1,5 @@
 # core/pipeline.py — 主流程编排：Ingest -> QC -> Review -> Archive
+import json
 import os
 import time
 import logging
@@ -116,8 +117,45 @@ def _maybe_log_mlflow(
         logger.warning("MLflow 记录失败（已跳过）: %s", e)
 
 
+def _in_progress_dir(cfg: dict) -> str:
+    """返回 in_progress 标记目录绝对路径。"""
+    return os.path.join(config_loader.get_base_dir(), "storage", "in_progress")
+
+
+def _write_batch_marker(batch_id: str, video_count: int, cfg: dict) -> None:
+    """断电恢复标记：Batch 开始归档前写入，完成后由 _clear_batch_marker 删除。
+    若重启时发现标记文件，说明上次处理未完成，运维可参考 OPS-001 手册恢复。
+    """
+    marker_dir = _in_progress_dir(cfg)
+    os.makedirs(marker_dir, exist_ok=True)
+    marker_path = os.path.join(marker_dir, f"{batch_id}.json")
+    payload = {"batch_id": batch_id, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "video_count": video_count}
+    tmp = marker_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, marker_path)
+    logger.debug("断电恢复标记已写入: %s", marker_path)
+
+
+def _clear_batch_marker(batch_id: str, cfg: dict) -> None:
+    """Batch 成功完成后删除标记文件。"""
+    marker_path = os.path.join(_in_progress_dir(cfg), f"{batch_id}.json")
+    try:
+        os.remove(marker_path)
+        logger.debug("断电恢复标记已清除: %s", marker_path)
+    except FileNotFoundError:
+        pass
+
+
 def _record_batch_lineage(cfg: dict, path_info: dict) -> None:
-    """v3 血缘：写入 batch_lineage 表。"""
+    """v3 血缘：写入 batch_lineage 表。
+
+    事务原则：仅在 archiver.archive_produced() 成功后调用。
+    若 DB 写入失败则抛出 RuntimeError，阻止 metrics 计数，
+    避免"文件已归档但无 lineage 记录"的不一致状态。
+    """
     db_path = cfg.get("paths", {}).get("db_url")
     if not db_path:
         return
@@ -165,12 +203,18 @@ def run_smart_factory(
         cfg.setdefault("production_setting", {})["pass_rate_gate"] = float(gate_val)
 
     import signal
+    import threading
 
     def _sigint_handler(signum, frame):
         logger.warning("Pipeline 被用户中断 (Ctrl+C / SIGINT)")
         raise KeyboardInterrupt
 
-    prev_handler = signal.signal(signal.SIGINT, _sigint_handler)
+    prev_handler = None
+    if threading.current_thread() is threading.main_thread():
+        try:
+            prev_handler = signal.signal(signal.SIGINT, _sigint_handler)
+        except ValueError:
+            pass  # signal only works in main thread
     try:
         _run_pipeline(cfg, video_paths, gate_val)
     except KeyboardInterrupt:
@@ -184,7 +228,11 @@ def run_smart_factory(
             pass
         raise
     finally:
-        signal.signal(signal.SIGINT, prev_handler)
+        if prev_handler is not None:
+            try:
+                signal.signal(signal.SIGINT, prev_handler)
+            except (ValueError, TypeError):
+                pass
 
 
 def _run_pipeline(
@@ -266,12 +314,18 @@ def _run_pipeline(
             to_reject.extend(review_reject)
     t_review = time.time()
 
-    archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
-    print(f"  [Archive] Batch {path_info['batch_id']}", flush=True)
-    print("            Extracting frames + writing pseudo-labels ...", flush=True)
-    archiver.archive_produced(cfg, to_fuel, to_human, path_info)
-    metrics.inc("batch_processed_total")
-    _record_batch_lineage(cfg, path_info)
+    # 断电恢复标记：归档开始前写入，完成后清除；重启时若标记残留则说明上次未完成
+    _write_batch_marker(path_info["batch_id"], len(videos), cfg)
+    try:
+        archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
+        print(f"  [Archive] Batch {path_info['batch_id']}", flush=True)
+        print("            Extracting frames + writing pseudo-labels ...", flush=True)
+        # 事务原则：文件归档成功后才写 DB；若 DB 写入失败则抛出，确保"账本"与"仓库"一致
+        archiver.archive_produced(cfg, to_fuel, to_human, path_info)
+        _record_batch_lineage(cfg, path_info)
+        metrics.inc("batch_processed_total")
+    finally:
+        _clear_batch_marker(path_info["batch_id"], cfg)
     updated = labeling_export.auto_update_after_batch(cfg, path_info)
     if updated:
         logger.info("待标池已自动更新: %s", updated)

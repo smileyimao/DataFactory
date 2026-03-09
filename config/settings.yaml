@@ -30,7 +30,7 @@ paths:
   # 数据流主路径
   raw_video:          "storage/raw"              # 原材料投入口（Guard 模式监控此目录）
   data_warehouse:     "storage/archive"          # 归档成品库（批次目录落盘）
-  rejected_material:  "storage/rejected/quality"     # QC 质量不达标
+  rejected_material:  "storage/rejected/qc_fail"     # QC 质检不达标
   redundant_archives: "storage/rejected/duplicate"   # MD5 重复
   quarantine:         "storage/rejected/quarantine"  # Ingest 预检失败（解码错误等）
 

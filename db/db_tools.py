@@ -243,7 +243,7 @@ def record_batch_lineage(
         return True
     except Exception as e:
         logger.exception("batch_lineage 写入失败: batch_id=%s — %s", batch_id, e)
-        return False
+        raise RuntimeError(f"batch_lineage 写入失败，文件已归档但账本不一致: {batch_id}") from e
 
 
 def record_label_import(

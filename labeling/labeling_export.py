@@ -300,12 +300,29 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
     seen = {f"{x.get('batch_id', '')}_{x.get('filename', '')}" for x in existing}
     added = 0
     if upload_inspection and human_dir:
+        # 读 inspection/manifest.json 获取 max_conf，用于主动学习排序
+        insp_scores: dict = {}
+        insp_manifest_path = os.path.join(human_dir, "manifest.json")
+        if os.path.isfile(insp_manifest_path):
+            try:
+                with open(insp_manifest_path, "r", encoding="utf-8") as _f:
+                    for entry in json.load(_f):
+                        insp_scores[entry.get("filename", "")] = float(entry.get("max_conf", 1.0))
+            except Exception as _e:
+                logger.warning("读取 inspection manifest.json 失败，跳过排序: %s", _e)
+
         items = _collect_media_from_dir(human_dir)
-        for item in items:
+        # 主动学习：按 max_conf 升序排列，置信度最低（最不确定）的帧排在最前
+        items.sort(key=lambda it: insp_scores.get(it["filename"], 1.0))
+
+        subdir = paths.get("batch_subdirs", {}).get("inspection", "inspection")
+        for rank, item in enumerate(items, start=1):
             src_path = item["path"]
             filename = item["filename"]
-            base, _ = os.path.splitext(filename)
-            dest_name = f"{batch_id}_{filename}"
+            base, ext = os.path.splitext(filename)
+            # 数字前缀确保 CVAT 按优先级顺序展示（000001_ 最不确定）
+            priority_prefix = f"{rank:06d}_"
+            dest_name = f"{priority_prefix}{batch_id}_{filename}"
             if dest_name in seen:
                 continue
             seen.add(dest_name)
@@ -317,18 +334,20 @@ def auto_update_after_batch(cfg: Dict[str, Any], path_info: Dict[str, Any]) -> O
             except OSError as e:
                 logger.warning("拷贝媒体失败 %s -> %s: %s", src_path, dest_path, e)
             if os.path.isfile(txt_src):
-                txt_dest = os.path.join(images_dir, f"{batch_id}_{base}.txt")
+                txt_dest = os.path.join(images_dir, f"{priority_prefix}{batch_id}_{base}.txt")
                 try:
                     shutil.copy2(txt_src, txt_dest)
                 except OSError as e:
                     logger.warning("拷贝 txt 失败 %s -> %s: %s", txt_src, txt_dest, e)
-            subdir = paths.get("batch_subdirs", {}).get("inspection", "inspection")
             existing.append({
                 "path": dest_path,
                 "relative_path": f"images/{dest_name}",
-                "filename": filename,
+                "filename": dest_name,
+                "source_filename": filename,
                 "subdir": subdir,
                 "batch_id": batch_id,
+                "max_conf": insp_scores.get(filename, None),
+                "priority": rank,
             })
     refinery_added = 0
     if refinery_sample_rate > 0 and fuel_dir:

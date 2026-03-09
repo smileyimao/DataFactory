@@ -1,9 +1,8 @@
 # DataFactory
 
-Python
-Version
-License
-Status
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-active-brightgreen)
 
 Industrial video data pipeline: **raw material → Ingest → Funnel QC → Admission → Archive → CVAT → Train**. Production-hardened for edge sites; designed for traceability and MLOps.
 
@@ -13,7 +12,7 @@ Industrial video data pipeline: **raw material → Ingest → Funnel QC → Admi
 
 ### System overview
 
-DataFactory Architecture
+![DataFactory Architecture](docs/DataFactory.png)
 
 *Automated data flow from ingest to archive, with reliability and continuous model evolution built in.*
 

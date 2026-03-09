@@ -300,7 +300,7 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
         "paths": {
             "raw_video": os.path.join(base_dir, "storage", "raw"),
             "data_warehouse": os.path.join(base_dir, "storage", "archive"),
-            "rejected_material": os.path.join(base_dir, "storage", "rejected", "quality"),
+            "rejected_material": os.path.join(base_dir, "storage", "rejected", "qc_fail"),
             "redundant_archives": os.path.join(base_dir, "storage", "rejected", "duplicate"),
             "quarantine": os.path.join(base_dir, "storage", "rejected", "quarantine"),
             "reports": os.path.join(base_dir, "storage", "reports"),

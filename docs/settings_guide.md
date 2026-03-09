@@ -25,7 +25,7 @@
 | `raw_video` | 原材料目录，单次/Guard 均从此**递归**扫描（支持子目录、深层嵌套） | `storage/raw` |
 | `test_source` | 测试源目录：`main.py --test` 从此复制到 raw，pipeline 不改动此目录 | `storage/test/original` |
 | `data_warehouse` | 合格成品归档目录（按 Batch 建子目录） | `storage/archive` |
-| `rejected_material` | QC 质量不达标归档 | `storage/rejected/quality` |
+| `rejected_material` | QC 质检不达标归档 | `storage/rejected/qc_fail` |
 | `redundant_archives` | MD5 重复归档 | `storage/rejected/duplicate` |
 | `reports` | 历史报表存档（每批 HTML/PNG 副本） | `storage/reports` |
 | `labeling_export` | 可选：待标注清单导出目录（`scripts/export_for_labeling.py`） | `storage/for_labeling` |

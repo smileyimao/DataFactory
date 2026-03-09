@@ -206,9 +206,11 @@ def run_production(
 
             frame_dets = dets_map.get(f_idx, [])
             mean_conf = (sum(d.get("conf", 0.0) for d in frame_dets) / len(frame_dets)) if frame_dets else 0.0
+            max_conf_frame = max((d.get("conf", 0.0) for d in frame_dets), default=0.0) if frame_dets else 0.0
             sharpness = raw.get("bl", 0.0)
             bf_score = mean_conf * sharpness
             record["_bf_score"] = bf_score
+            record["max_conf"] = round(max_conf_frame, 4)  # 主动学习排序用：越低越不确定，越需要人工标注
 
             candidates.append((frame, f_idx, record, env, frame_dets))
 

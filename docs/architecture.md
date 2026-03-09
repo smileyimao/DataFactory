@@ -11,7 +11,7 @@ storage/raw (原材料)
     → Ingest（准入/凑批）
     → QC Engine（指纹、质量检测、查重）
     → 邮件汇总 + Reviewer（人工 y/n/all/none）
-    → Archiver（合格 → storage/archive | 废片 → storage/rejected/quality | 重复 → storage/rejected/duplicate）
+    → Archiver（合格 → storage/archive | 废片 → storage/rejected/qc_fail | 重复 → storage/rejected/duplicate）
     → DB 记录
 ```
 

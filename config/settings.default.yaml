@@ -22,7 +22,7 @@ logging:
 paths:
   raw_video:          "storage/raw"
   data_warehouse:     "storage/archive"
-  rejected_material:  "storage/rejected/quality"
+  rejected_material:  "storage/rejected/qc_fail"
   redundant_archives: "storage/rejected/duplicate"
   quarantine:         "storage/rejected/quarantine"
 

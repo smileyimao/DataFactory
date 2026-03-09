@@ -72,7 +72,8 @@ class ClipEmbedder:
             return False
         stacked = self._torch.stack(seen_list)  # (N, D)
         sims = (stacked @ emb).cpu().numpy()    # (N,)
-        return bool(np.max(sims) >= threshold)
+        eps = 1e-6  # 浮点精度容差
+        return bool(np.max(sims) >= threshold - eps)
 
     # ── 多样性采样（最远点采样 FPS）────────────────────────────────────────
 

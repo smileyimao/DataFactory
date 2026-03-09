@@ -25,10 +25,30 @@ def _list_raw_media(cfg: dict) -> list:
     return ingest.get_video_paths(cfg)
 
 
+def _check_stale_markers(cfg: dict) -> None:
+    """开机自检：检查 storage/in_progress/ 下是否有上次断电/崩溃遗留的未完成标记。
+    发现残留标记时记录 CRITICAL 日志，提示运维参考 OPS-001 手册确认数据一致性。
+    """
+    import json
+    marker_dir = os.path.join(config_loader.get_base_dir(), "storage", "in_progress")
+    if not os.path.isdir(marker_dir):
+        return
+    stale = [f for f in os.listdir(marker_dir) if f.endswith(".json")]
+    if not stale:
+        return
+    logger.critical(
+        "⚡ 发现 %d 个未完成的 Batch 标记（可能由断电或崩溃引起）: %s — "
+        "请参考 Knowledge/Observe/OPS-001-lineage-mismatch.md 确认归档与 DB 一致性",
+        len(stale),
+        [s.replace(".json", "") for s in stale],
+    )
+
+
 def startup_scan(cfg: dict = None) -> None:
     """开机扫描：将 raw_video 下存量视频作为一批送入工厂。cfg 未传则从 config_loader 加载。"""
     if cfg is None:
         cfg = config_loader.load_config()
+    _check_stale_markers(cfg)
     paths = _list_raw_media(cfg)
     if not paths:
         logger.info("开机自检: 未发现存量视频")
