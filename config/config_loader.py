@@ -39,8 +39,10 @@ def get_config_and_paths(base_dir: Optional[str] = None) -> Tuple[Dict[str, Any]
         for_labeling = os.path.join(base_dir, "storage", "for_labeling")
     elif not os.path.isabs(for_labeling):
         for_labeling = os.path.join(base_dir, for_labeling)
-    # Resolve db_url: DATABASE_URL env var
+    # Resolve db_url: DATABASE_URL env var → 回退到本地 SQLite
     db_url = os.environ.get("DATABASE_URL", "").strip()
+    if not db_url:
+        db_url = os.path.join(get_base_dir(), "storage", "factory_admin.db")
     # Also inject into cfg["paths"] so callers that use cfg directly get db_url too
     cfg["paths"]["db_url"] = db_url
     return cfg, {"for_labeling": for_labeling, "db_url": db_url}
@@ -159,8 +161,11 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     ec = data.setdefault("email_setting", {})
     ec.setdefault("max_retries", 3)
     ec.setdefault("retry_delay_seconds", 5)
-    # Inject db_url from DATABASE_URL env var
-    data["paths"]["db_url"] = os.environ.get("DATABASE_URL", "").strip()
+    # Inject db_url from DATABASE_URL env var → 回退到本地 SQLite
+    _db_url = os.environ.get("DATABASE_URL", "").strip()
+    if not _db_url:
+        _db_url = os.path.join(get_base_dir(), "storage", "factory_admin.db")
+    data["paths"]["db_url"] = _db_url
     # P2-10: env override for quality_thresholds 和 production_setting
     # 放在所有 setdefault 之后，确保即使 YAML 未配置某节也能被 env 覆盖
     _apply_section_env_overrides(data.get("quality_thresholds", {}), "QT")
@@ -311,7 +316,8 @@ def _default_config(base_dir: str) -> Dict[str, Any]:
             "golden": os.path.join(base_dir, "storage", "golden"),
             "pending_review": os.path.join(base_dir, "storage", "pending_review"),
             "logs": os.path.join(base_dir, "logs"),
-            "db_url": os.environ.get("DATABASE_URL", "").strip(),
+            "db_url": (os.environ.get("DATABASE_URL", "").strip()
+                       or os.path.join(base_dir, "storage", "factory_admin.db")),
             "batch_prefix": "Batch_",
             "batch_fails_suffix": "_Fails",
             "batch_subdirs": {"reports": "reports", "source": "source", "refinery": "refinery", "inspection": "inspection", "labeled": "labeled"},

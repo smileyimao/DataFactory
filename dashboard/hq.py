@@ -43,10 +43,7 @@ from hq_layout import (
 )
 
 # ── HQ 常量 ──────────────────────────────────────────────────────────────
-GOLD_BASE       = 1_248_500    # 历史归档基数（展示用）
-GOLD_SCALE      = 300          # file_count → 帧数估算系数
-# Mock 模式下每秒增加帧数（3 站点 × ~1.2 帧/秒 = 3.5 帧/秒）
-# 相当于约 30 万帧/天，展示公司数据资产持续增值
+# Mock 模式下每秒增加帧数（无 DB 时用）
 GOLD_RATE       = 3.5
 
 STORAGE_USED_PB = 1.2
@@ -193,7 +190,7 @@ def _poll_hw() -> dict:
 
 
 # ── DB 查询（带降级）────────────────────────────────────────────────────
-_db_cache: Dict[str, Any] = {"ts": 0.0, "gold": GOLD_BASE,
+_db_cache: Dict[str, Any] = {"ts": 0.0, "gold": 0,
                               "conf": 0.72, "clarity": 85.0, "iou": 0.964}
 
 def _poll_db(db_url: str) -> dict:
@@ -215,11 +212,10 @@ def _poll_db(db_url: str) -> dict:
         conn = connect(db_url)
         cur  = conn.cursor()
 
-        # Gold Frames = SUM(file_count) × GOLD_SCALE + GOLD_BASE
-        cur.execute("SELECT COALESCE(SUM(file_count), 0) FROM batch_metrics")
+        # Gold Frames = SUM(frame_count)（真实写出帧数）
+        cur.execute("SELECT COALESCE(SUM(frame_count), 0) FROM batch_metrics")
         row = cur.fetchone()
-        file_sum = int(row[0]) if row and row[0] else 0
-        gold = GOLD_BASE + file_sum * GOLD_SCALE
+        gold = int(row[0]) if row and row[0] else 0
 
         # 最新 IoU（最近一次 label_import 的 consistency_rate）
         try:
@@ -319,12 +315,12 @@ def refresh(_n, store):
     clarity = db["clarity"]
     iou     = db["iou"]
 
-    # Gold Assets：有 DB 时读真实值；mock 模式下按会话时间持续增长
+    # Gold Assets：有 DB 时读真实帧数；无 DB 时按会话时间增长（从 0 开始）
     if _DB_URL:
         gold = db["gold"]
     else:
         elapsed_sec = (datetime.now() - _session_start).total_seconds()
-        gold = GOLD_BASE + int(elapsed_sec * GOLD_RATE)
+        gold = int(elapsed_sec * GOLD_RATE)
 
     # ── 本地硬件 ────────────────────────────────────────────────────────
     hw = _poll_hw()

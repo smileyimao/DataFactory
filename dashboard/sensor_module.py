@@ -213,11 +213,23 @@ class ArchiveDataSource(DataSource):
         self._cursor = 0
 
         if not self._frames:
-            raise FileNotFoundError(
-                f"archive_dir={archive_dir!r} 下没有找到 inspection/refinery 帧，"
-                "请先跑一次 pipeline 或改用 --source mock"
-            )
-        print(f"[ArchiveDataSource] 找到 {len(self._frames)} 帧，loop={loop}")
+            import time as _time
+            print(f"[ArchiveDataSource] archive 暂无帧，等待 pipeline 产出帧 ({archive_dir}) ...")
+            while not self._frames:
+                _time.sleep(5)
+                for root, _, files in os.walk(archive_dir):
+                    subdir = os.path.basename(root)
+                    if subdir not in ("inspection", "refinery"):
+                        continue
+                    for f in sorted(files):
+                        if os.path.splitext(f)[1].lower() in IMG_EXT:
+                            p = os.path.join(root, f)
+                            if p not in self._frames:
+                                self._frames.append(p)
+                self._frames.sort()
+            print(f"[ArchiveDataSource] 检测到 {len(self._frames)} 帧，开始回放")
+        else:
+            print(f"[ArchiveDataSource] 找到 {len(self._frames)} 帧，loop={loop}")
 
         # 尝试读取最新 comparison_report.json 作为初始 IoU 快照
         self._iou_snapshot = self._load_latest_iou(archive_dir)

@@ -160,7 +160,7 @@ def main():
         print(f"  Mode     Guard (watching storage/raw)\n")
         _print_dashboards()
         from core import guard
-        guard.run_guard()
+        guard.run_guard(auto_cvat=not args.no_cvat)
     else:
         print(f"  Mode     Single-run\n")
         t0 = _time.monotonic()
@@ -177,7 +177,7 @@ def main():
 
         cvat_url = ""
         cvat_configured = bool(os.environ.get("CVAT_LOCAL_URL"))
-        should_upload = (args.auto_cvat or cvat_configured) and not args.no_cvat
+        should_upload = not args.no_cvat
         if should_upload and stats.get("total", 0) > 0:
             from labeling import annotation_upload
             cvat_url = annotation_upload.upload(cfg, task_name=stats.get("batch_id", "DataFactory"))

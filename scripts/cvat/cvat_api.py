@@ -201,21 +201,24 @@ def auto_cvat_upload(
     for_cvat_native_zip: str,
     task_name: str = "DataFactory",
     project_name: str = "DataFactory",
+    class_names: list = None,
 ) -> Optional[str]:
     """
     全自动：创建 Project → Task → 上传图片 → 上传标注。
     返回 Task URL，失败返回 None。
     """
+    if class_names is None:
+        class_names = ["car", "bus", "truck"]
     conf_attr = {
         "name": "confidence",
         "mutable": False,
         "input_type": "number",
         "default_value": "0",
-        "values": ["0", "1"],
+        "values": ["0", "1", "0.0001"],  # number 类型：min, max, step
     }
     labels = [
         {"name": n, "type": "rectangle", "attributes": [conf_attr]}
-        for n in ["car", "bus", "truck"]
+        for n in class_names
     ]
     pid = create_project(project_name, labels)
     tid = create_task(pid, task_name)

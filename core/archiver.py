@@ -194,15 +194,15 @@ def _run_produce_chunk(
     use_flat_output: bool = False,
     skip_html_report: bool = False,
     inspection_dir: str = "",
-) -> None:
-    """对一批 item 执行量产并写入 production_history。
+) -> int:
+    """对一批 item 执行量产并写入 production_history。返回写出帧数。
     inspection_dir 非空时启用帧级分流：高置信帧 → target_dir(refinery)，低置信/无检测帧 → inspection_dir。
     """
     paths = cfg.get("paths", {})
     db_path = paths.get("db_url", "")
     new_video_paths = [x["archive_path"] for x in items if os.path.isfile(x.get("archive_path", ""))]
     if not new_video_paths:
-        return
+        return 0
     count = production_tools.run_production(
         new_video_paths, target_dir, batch_id, cfg, limit_seconds=None, detections_by_video=detections_by_video,
         use_flat_output=use_flat_output,
@@ -215,6 +215,7 @@ def _run_produce_chunk(
     for x in items:
         if x.get("fingerprint"):
             db_tools.record_production(db_path, batch_id, x["fingerprint"], x["score"], "SUCCESS", created_at=ts)
+    return count
 
 
 def archive_produced(
@@ -222,8 +223,8 @@ def archive_produced(
     to_fuel: List[Dict[str, Any]],
     to_human: List[Dict[str, Any]],
     path_info: Dict[str, Any],
-) -> None:
-    """按置信分层落盘：高置信 -> refinery，复核通过 -> inspection；否则合并写 refinery。"""
+) -> int:
+    """按置信分层落盘：高置信 -> refinery，复核通过 -> inspection；否则合并写 refinery。返回写出帧数。"""
     batch_id = path_info.get("batch_id", "")
     tiered = path_info.get("confidence_tiered_output", True)
 
@@ -236,31 +237,31 @@ def archive_produced(
         all_items = to_fuel + to_human
         if not all_items:
             logger.info("无物料进入量产，本批次结束")
+            return 0
+        if qc_detections:
+            logger.info("复用 QC 阶段 YOLO 结果，跳过二次推理")
+            detections = qc_detections
         else:
-            if qc_detections:
-                logger.info("复用 QC 阶段 YOLO 结果，跳过二次推理")
-                detections = qc_detections
-            else:
-                all_paths = [x["archive_path"] for x in all_items if os.path.isfile(x.get("archive_path", ""))]
-                detections = _get_detections_by_video(cfg, all_paths)
-            logger.info("阶段2 帧级分流 共 %d 个文件 → refinery / inspection", len(all_items))
-            _run_produce_chunk(
-                cfg, all_items,
-                fuel_dir, batch_id,
-                "refinery+inspection",
-                detections_by_video=detections,
-                use_flat_output=True,
-                skip_html_report=True,
-                inspection_dir=human_dir,
-            )
-        return
+            all_paths = [x["archive_path"] for x in all_items if os.path.isfile(x.get("archive_path", ""))]
+            detections = _get_detections_by_video(cfg, all_paths)
+        logger.info("阶段2 帧级分流 共 %d 个文件 → refinery / inspection", len(all_items))
+        return _run_produce_chunk(
+            cfg, all_items,
+            fuel_dir, batch_id,
+            "refinery+inspection",
+            detections_by_video=detections,
+            use_flat_output=True,
+            skip_html_report=True,
+            inspection_dir=human_dir,
+        )
 
     # 兼容：不按置信分层时，合并写 2_Mass_Production
     to_produce = to_fuel + to_human
     if not to_produce:
         logger.warning("无物料进入量产，本批次结束。")
-        return
+        return 0
     mass_dir = path_info.get("mass_dir", "")
     logger.info("阶段2 量产 共 %d 个文件 -> refinery", len(to_produce))
-    _run_produce_chunk(cfg, to_produce, mass_dir, batch_id, "refinery")
+    count = _run_produce_chunk(cfg, to_produce, mass_dir, batch_id, "refinery")
     logger.info("档案入库: 批次 %s 的指纹已存入历史大账本。", batch_id)
+    return count

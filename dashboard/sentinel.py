@@ -358,8 +358,8 @@ def main() -> None:
     )
     parser.add_argument("--source",  choices=["mock", "archive", "live"], default="mock")
     parser.add_argument("--port",    type=int,   default=8766)
-    parser.add_argument("--fps",         type=float, default=30.0,
-                        help="采集帧率（archive 模式控制回放速度）")
+    parser.add_argument("--fps",         type=float, default=None,
+                        help="采集帧率（archive 模式默认 2fps，mock/live 默认 30fps）")
     parser.add_argument("--archive-dir", default=os.path.join(_BASE_DIR, "storage/archive"),
                         help="archive 数据源根目录（--source archive 时使用）")
     parser.add_argument("--log-dir",     default=os.path.join(_BASE_DIR, "logs"),
@@ -372,6 +372,8 @@ def main() -> None:
         _log_path = _init_log(args.log_dir)
         print(f"[SENTINEL-1] 日志: {_log_path}")
 
+    if args.fps is None:
+        args.fps = 2.0 if args.source == "archive" else 30.0
     source = build_source(args.source, archive_dir=args.archive_dir)
     print(f"[SENTINEL-1] 数据源: {args.source}  |  采集 {args.fps:.0f} fps")
 

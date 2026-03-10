@@ -62,7 +62,7 @@ services:
     volumes:
       - ./storage:/app/storage:ro     # 读取 archive 帧（--source archive 时）
       - ./config/settings.yaml:/app/config/settings.yaml:ro
-    command: ["python", "dashboard/sentinel.py", "--source", "mock", "--port", "8766"]
+    command: ["python", "dashboard/sentinel.py", "--source", "archive", "--port", "8766", "--fps", "2"]
     logging:
       driver: "json-file"
       options:
@@ -134,7 +134,7 @@ services:
       - server
       - --backend-store-uri
       - postgresql://datafactory:datafactory@postgres:5432/mlflow
-      - --default-artifact-root
+      - --artifacts-destination
       - /app/mlflow_artifacts
       - --host
       - "0.0.0.0"

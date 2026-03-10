@@ -257,9 +257,10 @@ def _build_qc_archive(
     for v_path in video_paths:
         bname = os.path.basename(v_path)
         stat = by_source.get(bname, {"normal": 0, "total": 0})
+        sampling_failed = stat["total"] == 0
         total = stat["total"] or 1
         score = (stat["normal"] / total) * 100
-        passed = score >= gate
+        passed = (not sampling_failed) and (score >= gate)
         archive_path = os.path.join(source_archive_dir, bname)
         fp = path_to_md5.get(v_path, "")
         rep = db_tools.get_reproduce_info(db_path, fp) if fp else None
@@ -276,15 +277,18 @@ def _build_qc_archive(
             "fingerprint": fp,
             "score": score,
             "passed": passed,
+            "sampling_failed": sampling_failed,
             "is_duplicate": is_dup,
             "duplicate_batch_id": rep["batch_id"] if rep else None,
             "duplicate_created_at": rep.get("created_at") if rep else None,
             "rule_stats": rule_stats,
         })
-        status = "合格" if passed else "不合格"
-        if is_dup:
+        if sampling_failed:
+            logger.warning("质量得分: 文件名=%s 指纹=%s 采样失败（0帧），跳过评分", bname, (fp or "")[:16])
+        elif is_dup:
             logger.info("质量得分: 文件名=%s 指纹=%s 分数=%.2f%% 状态=重复 曾于批次=%s", bname, (fp or "")[:16], score, rep.get("batch_id", ""))
         else:
+            status = "合格" if passed else "不合格"
             logger.info("质量得分: 文件名=%s 指纹=%s 分数=%.2f%% 状态=%s 准入=%.1f%%", bname, (fp or "")[:16], score, status, gate)
     return qc_archive
 
@@ -369,6 +373,8 @@ def _send_qc_email(
         name = item["filename"]
         if item.get("is_duplicate"):
             body_lines.append(f"  - {name}  [重复] 曾于批次 {item.get('duplicate_batch_id', '')} 处理（{item.get('duplicate_created_at', '')}）")
+        elif item.get("sampling_failed"):
+            body_lines.append(f"  - {name}  [采样失败] 无法读取帧，请检查文件完整性")
         elif item["passed"]:
             body_lines.append(f"  - {name}  [合格]")
         else:

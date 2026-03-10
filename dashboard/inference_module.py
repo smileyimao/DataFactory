@@ -18,6 +18,19 @@ _AMBER  = (255, 179,   0)
 _RED    = (255,  59,  59)
 _DIM    = (80,   80,  80)
 
+_COCO_NAMES = [
+    "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat",
+    "traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat",
+    "dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack",
+    "umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball",
+    "kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket",
+    "bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple",
+    "sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair",
+    "couch","potted plant","bed","dining table","toilet","tv","laptop","mouse",
+    "remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator",
+    "book","clock","vase","scissors","teddy bear","hair drier","toothbrush",
+]
+
 # ── 硬件温度（带 TTL 缓存）────────────────────────────────────────────────
 
 _hw_cache: Dict[str, object] = {"ts": 0.0, "cpu": "N/A", "gpu": "N/A"}
@@ -56,14 +69,32 @@ def get_hw_temps() -> Dict[str, str]:
 
 # ── 字体辅助 ─────────────────────────────────────────────────────────────
 
-def _load_fonts():
-    """返回 (font_sm, font_md)，兼容 Pillow 旧版。"""
+def _load_font(size: int):
+    """按 size 加载字体：优先 TrueType，降级为 Pillow 内置 bitmap。"""
     from PIL import ImageFont
+    _TRUETYPE_PATHS = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+    ]
+    for path in _TRUETYPE_PATHS:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
     try:
-        return ImageFont.load_default(size=12), ImageFont.load_default(size=15)
+        return ImageFont.load_default(size=size)
     except TypeError:
-        f = ImageFont.load_default()
-        return f, f
+        return ImageFont.load_default()
+
+
+def _load_fonts(img_height: int = 480):
+    """根据图片高度计算比例字体大小，返回 (font_label, font_hud)。"""
+    size_label = max(14, img_height // 30)   # 检测框标签
+    size_hud   = max(14, img_height // 35)   # FPS / 温度 HUD
+    return _load_font(size_label), _load_font(size_hud)
 
 
 # ── 帧渲染 ───────────────────────────────────────────────────────────────
@@ -82,33 +113,47 @@ def draw_frame(
 
     img  = Image.fromarray(frame_rgb, "RGB")
     draw = ImageDraw.Draw(img)
-    font_sm, font_md = _load_fonts()
+    W, H = img.width, img.height
+    font_label, font_hud = _load_fonts(H)
+    lh = max(14, H // 30)   # 标签行高（与 font_label 对齐）
+
+    def _text_w(text, font):
+        """获取文字像素宽度，兼容旧版 Pillow。"""
+        try:
+            return draw.textbbox((0, 0), text, font=font)[2]
+        except AttributeError:
+            return len(text) * (lh // 2)
 
     # ---- 检测框 ----
     for (x1, y1, x2, y2, conf, cls) in detections:
-        draw.rectangle([x1, y1, x2, y2], outline=_GREEN, width=2)
-        label = f"vehicle {conf:.2f}"
-        # 小背景块提升文字可读性
-        tw = len(label) * 7
-        draw.rectangle([x1, max(y1 - 16, 0), x1 + tw, max(y1, 16)],
-                       fill=(0, 0, 0, 160))
-        draw.text((x1 + 2, max(y1 - 15, 1)), label, fill=_GREEN, font=font_sm)
+        bw = max(2, H // 200)   # 框线宽与图高成比例
+        color = _AMBER if conf < 0.60 else _GREEN
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=bw)
+        cls_name = _COCO_NAMES[cls] if 0 <= cls < len(_COCO_NAMES) else str(cls)
+        label = f"{cls_name} {conf:.2f}"
+        tw = _text_w(label, font_label)
+        ty = max(y1 - lh - 2, 0)
+        # 纯黑背景（RGB 不支持 alpha，直接用实色）
+        draw.rectangle([x1, ty, x1 + tw + 4, ty + lh + 2], fill=(0, 0, 0))
+        draw.text((x1 + 2, ty + 1), label, fill=color, font=font_label)
 
     # ---- 左上：FPS ----
     fps_txt = f"FPS  {fps:5.1f}"
-    draw.rectangle([6, 4, 6 + len(fps_txt) * 9, 22], fill=(0, 0, 0))
-    draw.text((8, 5), fps_txt, fill=_GREEN, font=font_md)
+    fw = _text_w(fps_txt, font_hud)
+    draw.rectangle([4, 4, fw + 12, lh + 6], fill=(0, 0, 0))
+    draw.text((8, 5), fps_txt, fill=_GREEN, font=font_hud)
 
     # ---- 右上：硬件温度 ----
     hw = get_hw_temps()
     tmp_txt = f"CPU {hw['cpu']}  GPU {hw['gpu']}"
-    tx = img.width - len(tmp_txt) * 8 - 8
-    draw.rectangle([tx - 2, 4, img.width - 4, 22], fill=(0, 0, 0))
-    draw.text((tx, 5), tmp_txt, fill=_GREEN, font=font_sm)
+    tw2 = _text_w(tmp_txt, font_hud)
+    tx = W - tw2 - 12
+    draw.rectangle([tx - 2, 4, W - 4, lh + 6], fill=(0, 0, 0))
+    draw.text((tx, 5), tmp_txt, fill=_GREEN, font=font_hud)
 
     # ---- 左下：帧号水印 ----
     fid_txt = f"#{frame_id:08d}"
-    draw.text((8, img.height - 18), fid_txt, fill=_DIM, font=font_sm)
+    draw.text((8, H - lh - 4), fid_txt, fill=_DIM, font=font_hud)
 
     # ---- 编码 ----
     buf = io.BytesIO()

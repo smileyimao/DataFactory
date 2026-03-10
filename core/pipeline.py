@@ -25,6 +25,7 @@ def _batch_summary(
     t_review: float,
     t_archive: float,
     db_path: Optional[str] = None,
+    frame_count: int = 0,
 ) -> None:
     """基础指标：批次结束输出摘要（文件数、总大小、耗时、各阶段耗时、吞吐量），并写入 DB batch_metrics。"""
     elapsed = time.time() - start_time
@@ -55,6 +56,7 @@ def _batch_summary(
             d_archive,
             throughput_gb_h,
             files_per_h,
+            frame_count=frame_count,
         )
 
 
@@ -315,13 +317,14 @@ def _run_pipeline(
     t_review = time.time()
 
     # 断电恢复标记：归档开始前写入，完成后清除；重启时若标记残留则说明上次未完成
+    frame_count = 0
     _write_batch_marker(path_info["batch_id"], len(videos), cfg)
     try:
         archiver.archive_rejected(cfg, to_reject, path_info["batch_id"])
         print(f"  [Archive] Batch {path_info['batch_id']}", flush=True)
         print("            Extracting frames + writing pseudo-labels ...", flush=True)
         # 事务原则：文件归档成功后才写 DB；若 DB 写入失败则抛出，确保"账本"与"仓库"一致
-        archiver.archive_produced(cfg, to_fuel, to_human, path_info)
+        frame_count = archiver.archive_produced(cfg, to_fuel, to_human, path_info)
         _record_batch_lineage(cfg, path_info)
         metrics.inc("batch_processed_total")
     finally:
@@ -346,6 +349,7 @@ def _run_pipeline(
         t_review,
         t_archive,
         db_path=cfg.get("paths", {}).get("db_url"),
+        frame_count=frame_count,
     )
     _maybe_log_mlflow(
         cfg,

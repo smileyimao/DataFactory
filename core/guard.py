@@ -99,8 +99,9 @@ class VideoFolderHandler(FileSystemEventHandler):
     -> 将当前 raw 下全部视频送厂。Watchdog 由 OS 事件驱动，新视频产生即触发，无需轮询。
     """
 
-    def __init__(self, cfg: dict = None):
+    def __init__(self, cfg: dict = None, auto_cvat: bool = False):
         self._cfg = cfg if cfg is not None else config_loader.load_config()
+        self._auto_cvat = auto_cvat
         self._batch_wait = self._cfg.get("ingest", {}).get("batch_wait_seconds", 8)
         self._watch_path = self._cfg.get("paths", {}).get("raw_video", "")
         self._timer = None
@@ -124,6 +125,16 @@ class VideoFolderHandler(FileSystemEventHandler):
             try:
                 logger.info("批处理: 本批 %d 个文件送入工厂", len(paths))
                 pipeline.run_smart_factory(cfg=self._cfg, video_paths=paths)
+                if self._auto_cvat:
+                    try:
+                        from labeling import annotation_upload
+                        cvat_url = annotation_upload.upload(self._cfg)
+                        if cvat_url:
+                            print(f"  [CVAT]    Task created: {cvat_url}", flush=True)
+                        else:
+                            print("  [CVAT]    Upload skipped (no frames or CVAT not configured)", flush=True)
+                    except Exception as e:
+                        logger.warning("CVAT 自动上传失败: %s", e)
             finally:
                 with self._lock:
                     self._processing = False
@@ -204,7 +215,7 @@ def _poll_loop(handler: "VideoFolderHandler", interval: float, stop_event: threa
             logger.exception("轮询兜底异常: %s", e)
 
 
-def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
+def run_guard(cfg: dict = None, stop_event: threading.Event = None, auto_cvat: bool = False) -> None:
     """
     初始化 DB、创建 raw 目录、执行开机扫描、启动 Watchdog + 轮询兜底。
     cfg 未传则从 config_loader 加载；stop_event 传入时主循环会检查并在 set 后退出（测试用）。
@@ -229,7 +240,7 @@ def run_guard(cfg: dict = None, stop_event: threading.Event = None) -> None:
     startup_scan(cfg)
     logger.info("DataFactory 自动工厂启动 监控路径=%s", os.path.abspath(watch_path))
     observer = Observer()
-    handler = VideoFolderHandler(cfg)
+    handler = VideoFolderHandler(cfg, auto_cvat=auto_cvat)
     observer.schedule(handler, watch_path, recursive=True)
     observer.start()
 

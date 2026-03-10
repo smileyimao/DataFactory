@@ -167,7 +167,7 @@ review:
 
 # 6a. CVAT 上传配置
 cvat:
-  upload_pseudo_labels: false   # true=上传伪标签供标注员参考；false=图片只标，从零开始
+  upload_pseudo_labels: true    # true=上传伪标签供标注员参考；false=图片只标，从零开始
 
 # 6b. 待标池：每批归档后自动将 inspection 帧追加到 for_labeling
 labeling_pool:
@@ -186,9 +186,9 @@ labeled_return:
 # ── §7 模型训练与追踪 ──────────────────────────────────────────────────────────
 
 mlflow:
-  enabled: false                         # 启用前需先 docker compose --profile mlflow up -d
+  enabled: true                         # 本地模式：直接写 db/mlflow.db，无需启动 server
   experiment_name: "datafactory"
-  tracking_uri: "http://0.0.0.0:5001"   # MLflow 服务地址；null=退回本地 SQLite
+  tracking_uri: null                    # null=退回本地 SQLite（db/mlflow.db）
 
 version_mapping:
   algorithm_version: "rules_v1"   # 规则质检算法版本（写入血缘记录）

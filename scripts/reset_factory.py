@@ -89,9 +89,24 @@ def _clear_db(dry_run: bool) -> int:
             print(f"Failed to clear PostgreSQL: {e}", file=sys.stderr)
             return 1
     else:
-        print("❌ DATABASE_URL 未设置或不是 PostgreSQL URL，无法清空数据库。", file=sys.stderr)
-        print("   请在 .env 中设置 DATABASE_URL=postgresql://... 后重试。", file=sys.stderr)
-        return 1
+        # SQLite 回退：直接删文件
+        sqlite_candidates = [
+            os.path.join(BASE_DIR, "storage", "factory_admin.db"),
+            os.path.join(BASE_DIR, "db", "mlflow.db"),
+        ]
+        if db_url and not db_url.startswith(("postgresql", "postgres")):
+            sqlite_candidates.append(db_url)
+        deleted = 0
+        for p in sqlite_candidates:
+            if os.path.isfile(p):
+                if dry_run:
+                    print(f"[DRY-RUN] Would remove SQLite: {p}")
+                else:
+                    os.remove(p)
+                    print(f"  Removed SQLite: {p}")
+                deleted += 1
+        if deleted == 0:
+            print("  No SQLite DB files found.")
     return 0
 
 

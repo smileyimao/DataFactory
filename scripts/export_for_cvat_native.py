@@ -99,7 +99,7 @@ def export_cvat_native(for_labeling_dir: str, output_zip: str, class_names: list
         ET.SubElement(attr, "mutable").text = "false"
         ET.SubElement(attr, "input_type").text = "number"
         ET.SubElement(attr, "default_value").text = "0"
-        ET.SubElement(attr, "values").text = "0.0,1.0"
+        ET.SubElement(attr, "values").text = "0.0\n1.0\n0.0001"  # number 类型：min\nmax\nstep
     ET.SubElement(meta, "dumped").text = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f+00:00")
 
     items = []

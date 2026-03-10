@@ -29,6 +29,7 @@ def init_db(db_url: str) -> bool:
             CREATE TABLE IF NOT EXISTS batch_metrics (
                 batch_id TEXT PRIMARY KEY,
                 file_count INTEGER,
+                frame_count INTEGER DEFAULT 0,
                 size_gb REAL,
                 elapsed_sec REAL,
                 duration_ingest_sec REAL,
@@ -40,6 +41,12 @@ def init_db(db_url: str) -> bool:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # 兼容旧表：若 frame_count 列不存在则补充
+        try:
+            cur.execute("ALTER TABLE batch_metrics ADD COLUMN frame_count INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass  # 列已存在，忽略
         # v3 血缘表
         cur.execute("""
             CREATE TABLE IF NOT EXISTS batch_lineage (
@@ -165,6 +172,7 @@ def record_batch_metrics(
     duration_archive_sec: float,
     throughput_gb_per_hour: float,
     files_per_hour: float,
+    frame_count: int = 0,
 ) -> bool:
     """写入一批次的处理指标。成功返回 True，失败记录日志并返回 False。"""
     if not db_url:
@@ -179,7 +187,7 @@ def record_batch_metrics(
             "batch_metrics",
             "batch_id",
             [
-                "batch_id", "file_count", "size_gb", "elapsed_sec",
+                "batch_id", "file_count", "frame_count", "size_gb", "elapsed_sec",
                 "duration_ingest_sec", "duration_qc_sec", "duration_review_sec",
                 "duration_archive_sec", "throughput_gb_per_hour", "files_per_hour",
             ],
@@ -188,6 +196,7 @@ def record_batch_metrics(
         cur.execute(sql, (
             batch_id,
             file_count,
+            frame_count,
             size_gb,
             elapsed_sec,
             duration_ingest_sec,
