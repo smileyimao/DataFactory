@@ -4,6 +4,33 @@ All notable changes to DataFactory are documented here.
 
 ---
 
+## [2026-03-09] Local-Mode Demo Hardening + Real Frame Count
+
+- **TYPE**: UX / RELIABILITY / DATA ACCURACY
+- **CHANGE**: Full local-mode support (SQLite fallback, one-command startup), real frame count tracking in DB, Sentinel stability fixes, CVAT confidence annotation fix.
+
+**Local mode**:
+- **`config/config_loader.py`**: `DATABASE_URL` unset → auto-fallback to `storage/factory_admin.db` (SQLite); all three injection sites updated.
+- **`scripts/start_local.sh`** (new): One-command `datafactory` alias launcher via osascript; opens Review/Sentinel/HQ/MLflow/Pipeline in separate Terminal tabs.
+- **`scripts/reset_factory.py`**: SQLite cleanup support — deletes `factory_admin.db` and `db/mlflow.db` when `DATABASE_URL` is not PostgreSQL.
+
+**Sentinel stability**:
+- **`dashboard/sensor_module.py`**: `ArchiveDataSource` no longer raises `FileNotFoundError` when archive is empty; polls every 5s until pipeline produces frames.
+- **`dashboard/sentinel.py`**: `--fps` defaults to `2` for `--source archive`, `30` for mock/live — no manual flag needed.
+
+**Real frame count**:
+- **`db/db_tools.py`**: `batch_metrics` table gains `frame_count INTEGER` column; `ALTER TABLE` migration for existing DBs; `record_batch_metrics()` accepts `frame_count` parameter.
+- **`core/archiver.py`**: `_run_produce_chunk()` and `archive_produced()` return actual frame count written.
+- **`core/pipeline.py`**: `frame_count` collected from `archive_produced()` and stored via `_batch_summary()`.
+- **`dashboard/hq.py`**: Gold Assets reads `SUM(frame_count)` (real frames, no base offset, no estimation scale factor).
+
+**CVAT / annotation**:
+- **`scripts/cvat/cvat_api.py`**: Confidence attribute `values` fixed to `["0","1","0.0001"]` (number type requires min/max/step).
+- **`scripts/export_for_cvat_native.py`**: XML number values use `\n`-separated format (`0.0\n1.0\n0.0001`).
+- **`dashboard/inference_module.py`**: Proportional font sizing (`H//30`), RGB-safe label backgrounds, COCO class name lookup, amber/green confidence color coding.
+
+---
+
 ## [2026-03-06] P0 Compliance: Atomic Writes + Observability + Schema Validation
 
 - **TYPE**: RELIABILITY / OBSERVABILITY / INTEGRITY / SECURITY
